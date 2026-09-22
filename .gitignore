@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data
+data/raw/
+data/processed/
+*.csv
+*.parquet
+
+# Model checkpoints
+*.pt
+*.pth
+*.ckpt
+
+# Experiment outputs
+results/logs/
+results/tmp/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
