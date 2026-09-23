@@ -1,0 +1,41 @@
+# bert4rec_baseline.yaml
+
+# General settings
+seed: 42
+device: "cuda" # or "cpu"
+
+# Data paths
+data:
+  train_sequences_path: "data/processed/ml-1m/bert4rec/train_sequences.parquet"
+  validation_path: "data/processed/ml-1m/bert4rec/validation.parquet"
+  # For evaluation on test set after training
+  test_path: "data/processed/ml-1m/bert4rec/test.parquet"
+
+# Model architecture parameters
+model:
+  vocab_size: 3418
+  max_seq_len: 200
+  hidden_dim: 128
+  num_layers: 2
+  num_heads: 4
+  feed_forward_dim: 512
+  dropout: 0.2
+  pad_token_id: 0
+  mask_token_id: 1
+
+# Training parameters
+training:
+  batch_size: 64
+  learning_rate: 0.0001
+  weight_decay: 0.01
+  num_epochs: 10
+  mask_probability: 0.15
+  num_workers: 2 # Number of data loading workers
+  use_scheduler: False # Set to True for a learning rate scheduler
+  scheduler_type: "cosine_annealing"
+  min_lr: 1e-5
+
+# Checkpointing
+checkpointing:
+  save_dir: "checkpoints/bert4rec_baseline"
+  best_model_name: "bert4rec_baseline_best.pt"

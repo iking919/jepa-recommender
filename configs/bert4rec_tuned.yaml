@@ -1,0 +1,38 @@
+# General settings
+seed: 42
+device: "cuda"
+
+# Data paths
+data:
+  train_sequences_path: "data/processed/ml-1m/bert4rec/train_sequences.parquet"
+  validation_path: "data/processed/ml-1m/bert4rec/validation.parquet"
+  test_path: "data/processed/ml-1m/bert4rec/test.parquet"
+
+# Model architecture parameters
+model:
+  vocab_size: 3418
+  max_seq_len: 200
+  hidden_dim: 128
+  num_layers: 2
+  num_heads: 4
+  feed_forward_dim: 512
+  dropout: 0.1
+  pad_token_id: 0
+  mask_token_id: 1
+
+# Training parameters
+training:
+  batch_size: 64
+  learning_rate: 0.001
+  weight_decay: 0.01
+  num_epochs: 50
+  mask_probability: 0.15
+  num_workers: 2
+  use_scheduler: true
+  scheduler_type: "cosine_annealing"
+  min_lr: 0.00001
+
+# Checkpointing
+checkpointing:
+  save_dir: "checkpoints/bert4rec_tuned"
+  best_model_name: "bert4rec_tuned_best.pt"

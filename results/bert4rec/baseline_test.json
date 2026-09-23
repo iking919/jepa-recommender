@@ -1,0 +1,15 @@
+{
+  "model": "BERT4Rec",
+  "dataset": "MovieLens-1M",
+  "split": "test",
+  "num_users": 6040,
+  "num_items": 3416,
+  "max_seq_len": 200,
+  "mask_probability": 0.15,
+  "metrics": {
+    "HR@5": 0.0159,
+    "HR@10": 0.0356,
+    "NDCG@5": 0.0100,
+    "NDCG@10": 0.0163
+  }
+}
