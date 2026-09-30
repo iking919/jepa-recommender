@@ -1,20 +1,15 @@
 """
-transformer.py
-
-Reusable Transformer encoder components for the JEPA Recommender project.
+Shared Transformer encoder used by sequential recommendation models.
 """
+
+from __future__ import annotations
 
 import torch
 import torch.nn as nn
 
 
 class TransformerEncoder(nn.Module):
-    """
-    Reusable Transformer encoder.
-
-    This module wraps PyTorch's TransformerEncoder and provides a common
-    interface for BERT4Rec and JEPA.
-    """
+    """Thin wrapper around PyTorch's batch-first Transformer encoder."""
 
     def __init__(
         self,
@@ -23,7 +18,7 @@ class TransformerEncoder(nn.Module):
         num_heads: int,
         feed_forward_dim: int,
         dropout: float,
-    ):
+    ) -> None:
         super().__init__()
 
         encoder_layer = nn.TransformerEncoderLayer(
@@ -46,18 +41,7 @@ class TransformerEncoder(nn.Module):
         x: torch.Tensor,
         padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """
-        Args:
-            x:
-                Tensor of shape (batch_size, seq_len, hidden_dim).
-
-            padding_mask:
-                Boolean tensor of shape (batch_size, seq_len).
-                True indicates a padded position.
-
-        Returns:
-            Tensor of shape (batch_size, seq_len, hidden_dim).
-        """
+        """Encode a batch of sequences."""
 
         return self.encoder(
             x,

@@ -1,0 +1,10 @@
+{
+  "model": "JEPA",
+  "checkpoint": "checkpoints/jepa_baseline/jepa_baseline_best.pt",
+  "metrics": {
+    "HR@5": 0.024668874219059944,
+    "NDCG@5": 0.01836935058236122,
+    "HR@10": 0.0327814556658268,
+    "NDCG@10": 0.020918315276503563
+  }
+}

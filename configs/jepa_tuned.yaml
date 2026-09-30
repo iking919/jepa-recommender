@@ -1,0 +1,38 @@
+# JEPA tuned configuration.
+#
+# This configuration contains the selected tuned JEPA experiment.
+
+
+seed: 42
+device: "cuda"
+
+data:
+  train_path: "data/processed/ml-1m/jepa/train_context_target.parquet"
+  validation_path: "data/processed/ml-1m/jepa/validation.parquet"
+  test_path: "data/processed/ml-1m/jepa/test.parquet"
+
+model:
+  vocab_size: 3418
+  max_seq_len: 200
+  hidden_dim: 256
+  num_layers: 4
+  num_heads: 8
+  feed_forward_dim: 1024
+  dropout: 0.2
+  pad_token_id: 0
+
+training:
+  batch_size: 512
+  learning_rate: 0.0005
+  weight_decay: 0.01
+  num_epochs: 30
+  patience: 5
+  ema_decay: 0.996
+  mixed_precision: true
+  num_workers: 0
+
+output:
+  experiment_name: "jepa_tuned"
+  checkpoint_dir: "checkpoints/jepa_tuned"
+  results_dir: "results/jepa_tuned"
+  best_checkpoint_name: "jepa_tuned_best.pt"

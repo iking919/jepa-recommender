@@ -1,0 +1,10 @@
+{
+  "model": "BERT4Rec",
+  "checkpoint": "checkpoints/bert4rec_tuned/bert4rec_tuned_best.pt",
+  "metrics": {
+    "HR@5": 0.14155629139072848,
+    "HR@10": 0.21821192052980132,
+    "NDCG@5": 0.08927988324349752,
+    "NDCG@10": 0.11381694343073899
+  }
+}

@@ -1,7 +1,5 @@
 """
-ema.py
-
-Exponential Moving Average (EMA) utilities for the JEPA Recommender project.
+Exponential moving average utilities for the JEPA target encoder.
 """
 
 from __future__ import annotations
@@ -12,14 +10,10 @@ import torch.nn as nn
 
 class EMA:
     """
-    Exponential Moving Average updater for model parameters.
+    Update a target model's item embedding from a source model.
 
-    The EMA model is updated according to:
-
-        theta_target <- decay * theta_target
-                        + (1 - decay) * theta_context
-
-    This is used to maintain the slowly evolving target encoder in JEPA.
+    The source and target modules need only expose compatible
+    ``item_embedding.weight`` tensors.
     """
 
     def __init__(
@@ -27,7 +21,7 @@ class EMA:
         target_model: nn.Module,
         source_model: nn.Module,
         decay: float = 0.996,
-    ):
+    ) -> None:
         if not 0.0 <= decay < 1.0:
             raise ValueError(
                 f"EMA decay must be in [0, 1), got {decay}."
@@ -37,50 +31,44 @@ class EMA:
         self.source_model = source_model
         self.decay = decay
 
-        self._validate_models()
+        self._validate_embeddings()
 
-    def _validate_models(self) -> None:
-        """Ensure the source and target models have compatible parameters."""
+    def _validate_embeddings(self) -> None:
+        """Validate that source and target expose compatible embeddings."""
 
-        source_params = list(self.source_model.parameters())
-        target_params = list(self.target_model.parameters())
-
-        if len(source_params) != len(target_params):
-            raise ValueError(
-                "Source and target models must have the same number "
-                "of parameters."
+        if not hasattr(self.source_model, "item_embedding"):
+            raise AttributeError(
+                "Source model must have an item_embedding attribute."
             )
 
-        for source_param, target_param in zip(source_params, target_params):
-            if source_param.shape != target_param.shape:
-                raise ValueError(
-                    "Source and target model parameter shapes do not match."
-                )
+        if not hasattr(self.target_model, "item_embedding"):
+            raise AttributeError(
+                "Target model must have an item_embedding attribute."
+            )
+
+        source_shape = self.source_model.item_embedding.weight.shape
+        target_shape = self.target_model.item_embedding.weight.shape
+
+        if source_shape != target_shape:
+            raise ValueError(
+                "Source and target item embeddings must have the same shape. "
+                f"Got source={source_shape}, target={target_shape}."
+            )
 
     @torch.no_grad()
     def update(self) -> None:
-        """
-        Update target-model parameters using the source model.
+        """Apply one EMA update to the target item embedding."""
 
-        The target encoder does not receive gradients through this operation.
-        """
+        source_embedding = self.source_model.item_embedding.weight
+        target_embedding = self.target_model.item_embedding.weight
 
-        source_params = list(self.source_model.parameters())
-        target_params = list(self.target_model.parameters())
-
-        for target_param, source_param in zip(
-            target_params,
-            source_params,
-        ):
-            target_param.data.mul_(self.decay)
-            target_param.data.add_(
-                source_param.data,
-                alpha=1.0 - self.decay,
-            )
+        target_embedding.mul_(self.decay)
+        target_embedding.add_(
+            source_embedding,
+            alpha=1.0 - self.decay,
+        )
 
     def state_dict(self) -> dict:
-        """Return EMA configuration as a serializable dictionary."""
+        """Return serializable EMA configuration."""
 
-        return {
-            "decay": self.decay,
-        }
+        return {"decay": self.decay}

@@ -1,31 +1,152 @@
+# ============================================================
 # Python
+# ============================================================
+
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+
+# Build and packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+wheels/
+pip-wheel-metadata/
+
+# Virtual environments
 .venv/
 venv/
+env/
+ENV/
 
+# Python tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+
+# ============================================================
 # Jupyter
+# ============================================================
+
 .ipynb_checkpoints/
+*.nbconvert.ipynb
 
-# Data
-data/raw/
-data/processed/
-*.csv
+
+# ============================================================
+# Environment variables and secrets
+# ============================================================
+
+.env
+.env.*
+!.env.example
+
+# Credentials and private keys
+*.pem
+*.key
+credentials.json
+secrets.json
+
+
+# ============================================================
+# Dataset files
+# ============================================================
+
+# Ignore downloaded MovieLens-1M data, but retain documentation.
+data/raw/*
+!data/raw/README
+!data/raw/ml-1m/
+data/raw/ml-1m/*
+!data/raw/ml-1m/README
+
+# Ignore generated intermediate and processed artifacts.
+data/interim/*
+!data/interim/README.md
+!data/interim/ml-1m/
+data/interim/ml-1m/*
+!data/interim/ml-1m/README.md
+
+data/processed/*
+!data/processed/README.md
+!data/processed/ml-1m/
+data/processed/ml-1m/*
+!data/processed/ml-1m/README.md
+
+# Common generated dataset formats
 *.parquet
+*.feather
+*.arrow
 
+
+# ============================================================
 # Model checkpoints
+# ============================================================
+
+# Large trained model files
 *.pt
 *.pth
 *.ckpt
+*.safetensors
 
+# Retain checkpoint documentation
+!checkpoints/README.md
+
+
+# ============================================================
 # Experiment outputs
+# ============================================================
+
+# Temporary or verbose logs
+*.log
+logs/
 results/logs/
 results/tmp/
+results/**/tensorboard/
+results/**/wandb/
 
-# IDE
+# Temporary files
+*.tmp
+*.temp
+*.bak
+
+# Keep useful research artifacts such as:
+# training_history.csv
+# run_summary.json
+# test_results.json
+# These are intentionally NOT ignored.
+
+
+# ============================================================
+# IDE and editor settings
+# ============================================================
+
 .vscode/
 .idea/
+*.sublime-workspace
+*.swp
+*.swo
+*~
 
-# OS
+
+# ============================================================
+# Operating system
+# ============================================================
+
 .DS_Store
+.AppleDouble
+.LSOverride
 Thumbs.db
+Desktop.ini
+
+
+# ============================================================
+# Project-specific
+# ============================================================
+
+# Local experiment configuration overrides
+configs/local/

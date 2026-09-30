@@ -1,9 +1,17 @@
 """
-Data preprocessing utilities for sequential recommendation.
+Reusable preprocessing utilities for sequential recommendation.
 
-This module contains reusable preprocessing functions used to transform
-raw recommendation datasets into chronological user sequences.
+The preprocessing pipeline loads MovieLens-1M, orders interactions
+chronologically, removes rare items, builds user histories, and creates
+a contiguous item-ID mapping.
+
+Special tokens:
+    0 = PAD
+    1 = MASK
+    2+ = actual movie IDs
 """
+
+from __future__ import annotations
 
 import pandas as pd
 
@@ -13,8 +21,8 @@ MASK_TOKEN = 1
 ITEM_ID_OFFSET = 2
 
 
-def load_movielens(raw_dir):
-    """Load the raw MovieLens-1M dataset."""
+def load_movielens(raw_dir: str):
+    """Load the MovieLens-1M ratings, users, and movie metadata files."""
 
     ratings = pd.read_csv(
         f"{raw_dir}/ratings.dat",
@@ -27,13 +35,7 @@ def load_movielens(raw_dir):
         f"{raw_dir}/users.dat",
         sep="::",
         engine="python",
-        names=[
-            "user_id",
-            "gender",
-            "age",
-            "occupation",
-            "zip_code",
-        ],
+        names=["user_id", "gender", "age", "occupation", "zip_code"],
     )
 
     movies = pd.read_csv(
@@ -47,39 +49,33 @@ def load_movielens(raw_dir):
     return ratings, users, movies
 
 
-def sort_ratings_chronologically(ratings):
+def sort_ratings_chronologically(ratings: pd.DataFrame) -> pd.DataFrame:
     """Sort interactions chronologically within each user."""
 
     ratings = ratings.copy()
-
-    ratings["datetime"] = pd.to_datetime(
-        ratings["timestamp"],
-        unit="s",
-    )
+    ratings["datetime"] = pd.to_datetime(ratings["timestamp"], unit="s")
 
     return ratings.sort_values(
         by=["user_id", "timestamp"]
     ).reset_index(drop=True)
 
 
-def filter_rare_items(ratings, min_item_interactions=5):
-    """Remove items with fewer than the specified number of interactions."""
+def filter_rare_items(
+    ratings: pd.DataFrame,
+    min_item_interactions: int = 5,
+) -> pd.DataFrame:
+    """Remove items with fewer than ``min_item_interactions`` ratings."""
 
-    item_counts = (
-        ratings.groupby("movie_id")
-        .size()
-    )
+    item_counts = ratings.groupby("movie_id").size()
+    valid_items = item_counts[item_counts >= min_item_interactions].index
 
-    valid_items = item_counts[
-        item_counts >= min_item_interactions
-    ].index
-
-    return ratings[
-        ratings["movie_id"].isin(valid_items)
-    ].copy()
+    return ratings[ratings["movie_id"].isin(valid_items)].copy()
 
 
-def build_user_sequences(ratings, max_seq_len=200):
+def build_user_sequences(
+    ratings: pd.DataFrame,
+    max_seq_len: int = 200,
+) -> pd.DataFrame:
     """Build chronological item sequences for each user."""
 
     sequences = (
@@ -91,21 +87,19 @@ def build_user_sequences(ratings, max_seq_len=200):
     sequences["sequence"] = sequences["sequence"].apply(
         lambda sequence: sequence[-max_seq_len:]
     )
-
-    sequences["sequence_length"] = (
-        sequences["sequence"].apply(len)
-    )
+    sequences["sequence_length"] = sequences["sequence"].apply(len)
 
     return sequences
 
 
-def create_movie_mapping(df_split, movies):
+def create_movie_mapping(
+    df_split: pd.DataFrame,
+    movies: pd.DataFrame,
+):
     """
-    Create contiguous movie IDs.
+    Create contiguous model IDs for all items appearing in the split.
 
-    0 = PAD
-    1 = MASK
-    2+ = actual movie IDs
+    IDs 0 and 1 remain reserved for PAD and MASK.
     """
 
     all_movies = set()
@@ -113,13 +107,8 @@ def create_movie_mapping(df_split, movies):
     for sequence in df_split["train_sequence"]:
         all_movies.update(sequence)
 
-    all_movies.update(
-        df_split["validation_item"].tolist()
-    )
-
-    all_movies.update(
-        df_split["test_item"].tolist()
-    )
+    all_movies.update(df_split["validation_item"].tolist())
+    all_movies.update(df_split["test_item"].tolist())
 
     unique_movie_ids = sorted(all_movies)
 
@@ -148,26 +137,18 @@ def create_movie_mapping(df_split, movies):
     return movie_map, mapping
 
 
-def apply_movie_mapping(df_split, movie_map):
+def apply_movie_mapping(
+    df_split: pd.DataFrame,
+    movie_map: dict[int, int],
+) -> pd.DataFrame:
     """Convert original movie IDs to contiguous model IDs."""
 
     df_split = df_split.copy()
 
-    df_split["train_sequence"] = df_split[
-        "train_sequence"
-    ].apply(
-        lambda sequence: [
-            movie_map[movie_id]
-            for movie_id in sequence
-        ]
+    df_split["train_sequence"] = df_split["train_sequence"].apply(
+        lambda sequence: [movie_map[movie_id] for movie_id in sequence]
     )
-
-    df_split["validation_item"] = (
-        df_split["validation_item"].map(movie_map)
-    )
-
-    df_split["test_item"] = (
-        df_split["test_item"].map(movie_map)
-    )
+    df_split["validation_item"] = df_split["validation_item"].map(movie_map)
+    df_split["test_item"] = df_split["test_item"].map(movie_map)
 
     return df_split

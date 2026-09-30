@@ -1,21 +1,21 @@
 """
-train_bert4rec.py
+Training pipeline for BERT4Rec.
 
-Training pipeline for the BERT4Rec sequential recommendation model.
-
-This module contains the reusable training logic. The command-line entry
-point is provided separately by scripts/train_bert4rec.py.
-
-Example:
-    python -m src.training.train_bert4rec \
-        --config configs/bert4rec_tuned.yaml
+The module contains reusable training logic and a command-line entry point.
+Experiment artifacts are split into:
+    checkpoints/<experiment>/  -> model checkpoints only
+    results/<experiment>/      -> histories and run summaries
 """
 
 from __future__ import annotations
 
 import argparse
-import os
+import csv
+import json
+import logging
 import time
+from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 import torch
@@ -33,29 +33,34 @@ from src.utils.logging import setup_logging
 from src.utils.reproducibility import set_seed
 
 
-logger = setup_logging(__name__)
+logger = logging.getLogger(__name__)
 
 
-def train_bert4rec(config_path: str) -> dict:
-    """
-    Train BERT4Rec using the supplied configuration.
+def _save_csv(records: list[dict], path: Path) -> None:
+    """Write a list of dictionaries to CSV."""
 
-    Args:
-        config_path:
-            Path to the YAML configuration file.
+    if not records:
+        return
 
-    Returns:
-        Dictionary containing training results and history.
-    """
+    path.parent.mkdir(parents=True, exist_ok=True)
 
-    # ------------------------------------------------------------------
-    # Configuration and reproducibility
-    # ------------------------------------------------------------------
+    with path.open("w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=list(records[0].keys()))
+        writer.writeheader()
+        writer.writerows(records)
 
-    config = load_config(config_path)
 
-    seed = config.get("seed", 42)
-    set_seed(seed)
+def _save_json(data: dict, path: Path) -> None:
+    """Write a dictionary to formatted JSON."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    with path.open("w", encoding="utf-8") as file:
+        json.dump(data, file, indent=2)
+
+
+def _resolve_device(config: dict) -> torch.device:
+    """Resolve and validate the configured training device."""
 
     configured_device = config.get("device")
 
@@ -66,44 +71,38 @@ def train_bert4rec(config_path: str) -> dict:
         )
 
     if configured_device:
-        device = torch.device(configured_device)
-    else:
-        device = torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu"
-        )
+        return torch.device(configured_device)
 
+    return torch.device(
+        "cuda" if torch.cuda.is_available() else "cpu"
+    )
+
+
+def train_bert4rec(config_path: str) -> dict:
+    """Train BERT4Rec using the supplied YAML configuration."""
+
+    config = load_config(config_path)
+    set_seed(config.get("seed", 42))
+
+    device = _resolve_device(config)
     logger.info("Using device: %s", device)
 
     if device.type == "cuda":
         logger.info("GPU: %s", torch.cuda.get_device_name(device))
 
-    # ------------------------------------------------------------------
-    # Data paths
-    # ------------------------------------------------------------------
+    data_config = config["data"]
+    model_config = config["model"]
+    training_config = config["training"]
+    output_config = config["output"]
 
-    train_sequences_path = config["data"]["train_sequences_path"]
-    validation_path = config["data"]["validation_path"]
+    train_path = Path(data_config["train_sequences_path"])
+    validation_path = Path(data_config["validation_path"])
 
-    logger.info(
-        "Loading training data from: %s",
-        train_sequences_path,
-    )
+    logger.info("Loading training data from: %s", train_path)
+    logger.info("Loading validation data from: %s", validation_path)
 
-    logger.info(
-        "Loading validation data from: %s",
-        validation_path,
-    )
-
-    # ------------------------------------------------------------------
-    # Load training and validation data
-    # ------------------------------------------------------------------
-
-    try:
-        train_df = pd.read_parquet(train_sequences_path)
-        val_df = pd.read_parquet(validation_path)
-    except Exception as exc:
-        logger.error("Failed to load dataset files: %s", exc)
-        raise
+    train_df = pd.read_parquet(train_path)
+    val_df = pd.read_parquet(validation_path)
 
     if "train_sequence" not in train_df.columns:
         raise ValueError(
@@ -113,57 +112,23 @@ def train_bert4rec(config_path: str) -> dict:
     if "validation_target" not in val_df.columns:
         if "validation_item" in val_df.columns:
             val_df = val_df.rename(
-                columns={
-                    "validation_item": "validation_target"
-                }
+                columns={"validation_item": "validation_target"}
             )
         else:
             raise ValueError(
-                "Validation data must contain either "
-                "'validation_target' or 'validation_item'."
+                "Validation data must contain either 'validation_target' "
+                "or 'validation_item'."
             )
 
-    raw_sequences = train_df["train_sequence"].tolist()
-
-    logger.info(
-        "Loaded %d training sequences.",
-        len(raw_sequences),
-    )
-
-    logger.info(
-        "Loaded %d validation users.",
-        len(val_df),
-    )
-
-    # ------------------------------------------------------------------
-    # Model configuration
-    # ------------------------------------------------------------------
-
-    model_config = config["model"]
-    training_config = config["training"]
-
-    vocab_size = model_config["vocab_size"]
-    max_seq_len = model_config["max_seq_len"]
-    pad_token_id = model_config["pad_token_id"]
-    mask_token_id = model_config["mask_token_id"]
-
-    # ------------------------------------------------------------------
-    # Dataset
-    # ------------------------------------------------------------------
-
     train_dataset = BERT4RecDataset(
-        sequences=raw_sequences,
-        max_seq_len=max_seq_len,
-        mask_token=mask_token_id,
+        sequences=train_df["train_sequence"].tolist(),
+        max_seq_len=model_config["max_seq_len"],
+        mask_token=model_config["mask_token_id"],
         mask_probability=training_config["mask_probability"],
+        pad_token=model_config["pad_token_id"],
     )
-
-    # ------------------------------------------------------------------
-    # DataLoader
-    # ------------------------------------------------------------------
 
     num_workers = training_config.get("num_workers", 0)
-
     loader_kwargs = {
         "batch_size": training_config["batch_size"],
         "shuffle": True,
@@ -172,33 +137,22 @@ def train_bert4rec(config_path: str) -> dict:
     }
 
     if num_workers > 0:
-        loader_kwargs["persistent_workers"] = (
-            training_config.get("persistent_workers", True)
+        loader_kwargs["persistent_workers"] = training_config.get(
+            "persistent_workers",
+            True,
         )
 
-    train_loader = DataLoader(
-        train_dataset,
-        **loader_kwargs,
-    )
-
-    logger.info(
-        "Training batches per epoch: %d",
-        len(train_loader),
-    )
-
-    # ------------------------------------------------------------------
-    # Model
-    # ------------------------------------------------------------------
+    train_loader = DataLoader(train_dataset, **loader_kwargs)
 
     model = BERT4Rec(
-        vocab_size=vocab_size,
-        max_seq_len=max_seq_len,
+        vocab_size=model_config["vocab_size"],
+        max_seq_len=model_config["max_seq_len"],
         hidden_dim=model_config["hidden_dim"],
         num_layers=model_config["num_layers"],
         num_heads=model_config["num_heads"],
         feed_forward_dim=model_config["feed_forward_dim"],
         dropout=model_config["dropout"],
-        pad_token_id=pad_token_id,
+        pad_token_id=model_config["pad_token_id"],
     ).to(device)
 
     trainable_parameters = sum(
@@ -207,14 +161,10 @@ def train_bert4rec(config_path: str) -> dict:
         if parameter.requires_grad
     )
 
-    logger.info(
-        "Trainable parameters: %s",
-        f"{trainable_parameters:,}",
-    )
-
-    # ------------------------------------------------------------------
-    # Optimizer
-    # ------------------------------------------------------------------
+    logger.info("Training samples: %d", len(train_dataset))
+    logger.info("Validation users: %d", len(val_df))
+    logger.info("Training batches per epoch: %d", len(train_loader))
+    logger.info("Trainable parameters: %s", f"{trainable_parameters:,}")
 
     optimizer = AdamW(
         model.parameters(),
@@ -222,94 +172,65 @@ def train_bert4rec(config_path: str) -> dict:
         weight_decay=training_config["weight_decay"],
     )
 
-    criterion = nn.CrossEntropyLoss(
-        ignore_index=-100
-    )
-
-    # ------------------------------------------------------------------
-    # Learning-rate scheduler
-    # ------------------------------------------------------------------
+    criterion = nn.CrossEntropyLoss(ignore_index=-100)
 
     scheduler = None
-
     if training_config.get("use_scheduler", False):
         scheduler_type = training_config.get(
             "scheduler_type",
             "cosine_annealing",
         )
 
-        if scheduler_type == "cosine_annealing":
-            scheduler = CosineAnnealingLR(
-                optimizer,
-                T_max=training_config["num_epochs"],
-                eta_min=training_config.get(
-                    "min_lr",
-                    1e-5,
-                ),
-            )
-
-            logger.info(
-                "Using cosine annealing scheduler."
-            )
-
-        else:
+        if scheduler_type != "cosine_annealing":
             raise ValueError(
                 f"Unsupported scheduler type: {scheduler_type}"
             )
 
-    # ------------------------------------------------------------------
-    # Checkpoint configuration
-    # ------------------------------------------------------------------
+        scheduler = CosineAnnealingLR(
+            optimizer,
+            T_max=training_config["num_epochs"],
+            eta_min=training_config.get("min_lr", 1e-5),
+        )
 
-    checkpoint_config = config["checkpointing"]
+    experiment_name = output_config["experiment_name"]
+    checkpoint_dir = Path(output_config["checkpoint_dir"])
+    results_dir = Path(output_config["results_dir"])
 
-    checkpoint_dir = checkpoint_config["save_dir"]
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    results_dir.mkdir(parents=True, exist_ok=True)
 
-    os.makedirs(
-        checkpoint_dir,
-        exist_ok=True,
+    best_checkpoint_path = (
+        checkpoint_dir / output_config["best_checkpoint_name"]
     )
+    history_path = results_dir / "training_history.csv"
+    summary_path = results_dir / "run_summary.json"
 
-    best_checkpoint_path = os.path.join(
-        checkpoint_dir,
-        checkpoint_config["best_model_name"],
-    )
-
-    # ------------------------------------------------------------------
-    # Training state
-    # ------------------------------------------------------------------
-
-    best_ndcg_10 = float("-inf")
-    best_epoch = -1
-
+    best_ndcg10 = float("-inf")
+    best_epoch = 0
     training_history = []
+
+    run_start = datetime.now().isoformat()
+    total_start = time.perf_counter()
 
     num_epochs = training_config["num_epochs"]
 
     logger.info(
-        "Starting BERT4Rec training for %d epochs.",
+        "Starting %s training for %d epochs.",
+        experiment_name,
         num_epochs,
     )
 
-    # ------------------------------------------------------------------
-    # Training loop
-    # ------------------------------------------------------------------
-
     for epoch in range(1, num_epochs + 1):
-
-        epoch_start = time.time()
-
+        epoch_start = time.perf_counter()
         model.train()
 
-        epoch_loss = 0.0
+        running_loss = 0.0
 
         for batch in train_loader:
-
             input_ids = batch["input_ids"].to(
                 device,
                 non_blocking=device.type == "cuda",
             )
-
             labels = batch["labels"].to(
                 device,
                 non_blocking=device.type == "cuda",
@@ -318,126 +239,137 @@ def train_bert4rec(config_path: str) -> dict:
             optimizer.zero_grad(set_to_none=True)
 
             logits = model(input_ids)
-
             loss = criterion(
-                logits.reshape(-1, vocab_size),
+                logits.reshape(-1, model_config["vocab_size"]),
                 labels.reshape(-1),
             )
 
             loss.backward()
-
             optimizer.step()
 
-            epoch_loss += (
-                loss.item()
-                * input_ids.size(0)
-            )
+            running_loss += loss.item() * input_ids.size(0)
 
         if scheduler is not None:
             scheduler.step()
 
+        train_loss = running_loss / len(train_dataset)
         current_lr = optimizer.param_groups[0]["lr"]
-
-        average_loss = (
-            epoch_loss / len(train_dataset)
-        )
-
-        # --------------------------------------------------------------
-        # Validation
-        # --------------------------------------------------------------
 
         val_metrics = evaluate_bert4rec(
             model=model,
             df=val_df,
             device=device,
-            max_seq_len=max_seq_len,
-            vocab_size=vocab_size,
-            pad_token_id=pad_token_id,
-            mask_token_id=mask_token_id,
+            max_seq_len=model_config["max_seq_len"],
+            vocab_size=model_config["vocab_size"],
+            pad_token_id=model_config["pad_token_id"],
+            mask_token_id=model_config["mask_token_id"],
+            target_column="validation_target",
+            input_column="train_sequence",
+            input_requires_mask=True,
             exclude_seen=True,
         )
 
-        epoch_time = time.time() - epoch_start
+        epoch_time = time.perf_counter() - epoch_start
 
-        hr_10 = val_metrics["hr_10"]
-        ndcg_10 = val_metrics["ndcg_10"]
+        record = {
+            "epoch": epoch,
+            "loss": train_loss,
+            "learning_rate": current_lr,
+            "HR@5": val_metrics["HR@5"],
+            "HR@10": val_metrics["HR@10"],
+            "NDCG@5": val_metrics["NDCG@5"],
+            "NDCG@10": val_metrics["NDCG@10"],
+            "epoch_time_seconds": epoch_time,
+        }
+        training_history.append(record)
+        _save_csv(training_history, history_path)
 
         logger.info(
-            "Epoch %02d/%02d | "
-            "Loss: %.4f | "
-            "LR: %.6f | "
-            "Val HR@10: %.4f | "
-            "Val NDCG@10: %.4f | "
-            "Time: %.1fs",
+            "Epoch %02d/%02d | loss=%.4f | HR@5=%.4f | HR@10=%.4f | "
+            "NDCG@5=%.4f | NDCG@10=%.4f | lr=%.6f | time=%.1fs",
             epoch,
             num_epochs,
-            average_loss,
+            train_loss,
+            record["HR@5"],
+            record["HR@10"],
+            record["NDCG@5"],
+            record["NDCG@10"],
             current_lr,
-            hr_10,
-            ndcg_10,
             epoch_time,
         )
 
-        training_history.append(
-            {
-                "epoch": epoch,
-                "train_loss": average_loss,
-                "learning_rate": current_lr,
-                "hr_10": hr_10,
-                "ndcg_10": ndcg_10,
-                "epoch_time": epoch_time,
-            }
-        )
-
-        # --------------------------------------------------------------
-        # Best-model checkpoint
-        # --------------------------------------------------------------
-
-        if ndcg_10 > best_ndcg_10:
-
-            best_ndcg_10 = ndcg_10
+        if record["NDCG@10"] > best_ndcg10:
+            best_ndcg10 = record["NDCG@10"]
             best_epoch = epoch
 
             checkpoint_state = {
+                "epoch": epoch,
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
-                "epoch": epoch,
                 "validation_metrics": val_metrics,
                 "training_history": training_history,
                 "config": config,
             }
 
             if scheduler is not None:
-                checkpoint_state[
-                    "scheduler_state_dict"
-                ] = scheduler.state_dict()
+                checkpoint_state["scheduler_state_dict"] = scheduler.state_dict()
 
-            save_checkpoint(
-                checkpoint_state,
-                best_checkpoint_path,
-            )
-
+            save_checkpoint(checkpoint_state, best_checkpoint_path)
             logger.info(
                 "Saved new best checkpoint: %s",
                 best_checkpoint_path,
             )
 
-    # ------------------------------------------------------------------
-    # Training complete
-    # ------------------------------------------------------------------
+    total_time = time.perf_counter() - total_start
+    run_end = datetime.now().isoformat()
 
-    logger.info("BERT4Rec training finished.")
+    summary = {
+        "model": "BERT4Rec",
+        "experiment_name": experiment_name,
+        "dataset": "MovieLens-1M",
+        "run_start": run_start,
+        "run_end": run_end,
+        "device": str(device),
+        "seed": config.get("seed", 42),
+        "configured_epochs": num_epochs,
+        "completed_epochs": len(training_history),
+        "best_epoch": best_epoch,
+        "best_validation_metrics": (
+            training_history[best_epoch - 1]
+            if best_epoch > 0
+            else {}
+        ),
+        "timing": {
+            "total_training_time_seconds": total_time,
+            "total_training_time_minutes": total_time / 60.0,
+            "average_epoch_time_seconds": (
+                total_time / len(training_history)
+                if training_history
+                else 0.0
+            ),
+        },
+        "model_parameters": {
+            "trainable": trainable_parameters,
+        },
+        "files": {
+            "checkpoint": str(best_checkpoint_path),
+            "training_history": str(history_path),
+        },
+    }
+
+    _save_json(summary, summary_path)
 
     logger.info(
-        "Best validation NDCG@10: %.4f at epoch %d.",
-        best_ndcg_10,
+        "Training complete. Best validation NDCG@10: %.4f at epoch %d.",
+        best_ndcg10,
         best_epoch,
     )
 
     return {
-        "best_ndcg_10": best_ndcg_10,
+        "best_ndcg_10": best_ndcg10,
         "best_epoch": best_epoch,
-        "best_model_path": best_checkpoint_path,
+        "best_model_path": str(best_checkpoint_path),
+        "results_path": str(results_dir),
         "training_history": training_history,
     }
 
@@ -448,24 +380,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Train a BERT4Rec sequential recommender."
     )
-
     parser.add_argument(
         "--config",
         type=str,
         required=True,
-        help="Path to the YAML configuration file.",
+        help="Path to the YAML experiment configuration.",
     )
-
     args = parser.parse_args()
 
-    results = train_bert4rec(
-        config_path=args.config
-    )
-
-    logger.info(
-        "Training results: %s",
-        results,
-    )
+    setup_logging()
+    train_bert4rec(args.config)
 
 
 if __name__ == "__main__":

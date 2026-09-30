@@ -1,23 +1,8 @@
 """
-evaluate.py
+Evaluation routines for sequential recommendation models.
 
-Evaluation utilities for sequential recommendation models.
-
-This module provides evaluation for BERT4Rec-style models using
-Hit Rate (HR) and Normalized Discounted Cumulative Gain (NDCG)
-at K.
-
-The evaluator supports both validation and test datasets:
-
-Validation:
-    user_id
-    train_sequence
-    validation_target
-
-Test:
-    user_id
-    test_input
-    test_item
+Both BERT4Rec and JEPA are evaluated with the same canonical metrics:
+    HR@5, HR@10, NDCG@5, NDCG@10
 """
 
 from __future__ import annotations
@@ -26,8 +11,75 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader
 
-from src.evaluation.metrics import calculate_metrics
+from src.evaluation.metrics import calculate_metrics, compute_ranking_metrics
+from src.evaluation.recommendation import build_candidate_embeddings, recommend_batch
+from src.models.jepa import JEPA
+
+
+@torch.no_grad()
+def evaluate_jepa(
+    model: JEPA,
+    loader: DataLoader,
+    num_items: int,
+    device: torch.device,
+    k_values: tuple[int, ...] = (5, 10),
+) -> dict[str, float]:
+    """
+    Evaluate JEPA as a next-item recommender.
+
+    Each sample contains a context sequence and one held-out target.
+    The predicted representation is compared with every valid item
+    embedding, and the target's rank determines the ranking metrics.
+    """
+
+    was_training = model.training
+    model.eval()
+
+    candidate_ids, candidate_embeddings = build_candidate_embeddings(
+        model=model,
+        num_items=num_items,
+        device=device,
+    )
+
+    max_k = max(k_values)
+    all_recommendations = []
+    all_targets = []
+
+    for batch in loader:
+        context = batch["context"].to(device, non_blocking=True)
+        actual_lens = batch["actual_len"].to(device, non_blocking=True)
+        targets = batch["target"].to(device, non_blocking=True)
+
+        recommendations, _ = recommend_batch(
+            model=model,
+            context=context,
+            actual_lens=actual_lens,
+            candidate_ids=candidate_ids,
+            candidate_embeddings=candidate_embeddings,
+            top_k=max_k,
+        )
+
+        all_recommendations.append(recommendations.cpu())
+        all_targets.append(targets.cpu())
+
+    if not all_recommendations:
+        raise ValueError("No samples were available for JEPA evaluation.")
+
+    recommendations = torch.cat(all_recommendations, dim=0)
+    targets = torch.cat(all_targets, dim=0)
+
+    metrics = compute_ranking_metrics(
+        recommendations=recommendations,
+        targets=targets,
+        k_values=k_values,
+    )
+
+    if was_training:
+        model.train()
+
+    return metrics
 
 
 def evaluate_bert4rec(
@@ -45,59 +97,13 @@ def evaluate_bert4rec(
     exclude_seen: bool = True,
 ) -> dict:
     """
-    Evaluate a BERT4Rec model on a user-level evaluation dataset.
+    Evaluate BERT4Rec on a user-level held-out dataset.
 
-    Args:
-        model:
-            Trained BERT4Rec model.
-
-        df:
-            Evaluation DataFrame.
-
-        device:
-            Device on which the model is evaluated.
-
-        max_seq_len:
-            Maximum sequence length used by the model.
-
-        vocab_size:
-            Size of the item vocabulary, including PAD and MASK.
-
-        pad_token_id:
-            Integer ID used for padding.
-
-        mask_token_id:
-            Integer ID used for the MASK token.
-
-        target_column:
-            DataFrame column containing the held-out target item.
-
-        input_column:
-            DataFrame column containing the input sequence.
-
-        input_requires_mask:
-            If True, append the MASK token to the input sequence.
-            If False, the input sequence is assumed to already contain
-            the MASK token.
-
-        limit_users:
-            Optional maximum number of users to evaluate.
-
-        exclude_seen:
-            If True, items appearing in the input history are excluded
-            from the recommendation candidates.
-
-    Returns:
-        Dictionary containing HR@5, HR@10, NDCG@5, NDCG@10,
-        and debug information for the first five users.
+    The evaluation sequence ends with a MASK token. The model's logits at
+    the MASK position are ranked over actual item IDs only.
     """
 
-    required_columns = {
-        "user_id",
-        input_column,
-        target_column,
-    }
-
+    required_columns = {"user_id", input_column, target_column}
     missing_columns = required_columns.difference(df.columns)
 
     if missing_columns:
@@ -107,22 +113,15 @@ def evaluate_bert4rec(
         )
 
     if vocab_size <= 2:
-        raise ValueError(
-            f"vocab_size must be greater than 2, got {vocab_size}."
-        )
+        raise ValueError(f"vocab_size must be greater than 2, got {vocab_size}.")
 
     if max_seq_len <= 0:
-        raise ValueError(
-            f"max_seq_len must be positive, got {max_seq_len}."
-        )
+        raise ValueError(f"max_seq_len must be positive, got {max_seq_len}.")
 
+    was_training = model.training
     model.eval()
 
-    all_hr_5 = []
-    all_hr_10 = []
-    all_ndcg_5 = []
-    all_ndcg_10 = []
-
+    all_metrics = []
     debug_outputs = []
 
     if limit_users is not None:
@@ -130,17 +129,13 @@ def evaluate_bert4rec(
             raise ValueError(
                 f"limit_users must be positive, got {limit_users}."
             )
-
         eval_users = df.iloc[:limit_users]
     else:
         eval_users = df
 
     with torch.no_grad():
         for _, row in eval_users.iterrows():
-
             user_id = row["user_id"]
-
-            # Load the evaluation input sequence.
             sequence = row[input_column]
 
             if hasattr(sequence, "tolist"):
@@ -151,21 +146,19 @@ def evaluate_bert4rec(
             target = int(row[target_column])
             original_len = len(sequence)
 
-            # Validation data contains the history without MASK.
-            # Test data contains the prepared test input.
             if input_requires_mask:
                 eval_seq = sequence + [mask_token_id]
             else:
                 eval_seq = sequence.copy()
 
-            # Truncate while keeping the most recent interactions.
             if len(eval_seq) > max_seq_len:
                 eval_seq = eval_seq[-max_seq_len:]
 
-            # Find the MASK position.
             try:
-                mask_position = len(eval_seq) - 1 - eval_seq[::-1].index(
-                    mask_token_id
+                mask_position = (
+                    len(eval_seq)
+                    - 1
+                    - eval_seq[::-1].index(mask_token_id)
                 )
             except ValueError as exc:
                 raise ValueError(
@@ -173,84 +166,46 @@ def evaluate_bert4rec(
                     f"the MASK token ({mask_token_id})."
                 ) from exc
 
-            # Pad on the right.
             pad_len = max_seq_len - len(eval_seq)
+            eval_seq_padded = eval_seq + [pad_token_id] * pad_len
 
-            eval_seq_padded = (
-                eval_seq
-                + [pad_token_id] * pad_len
-            )
-
-            input_ids_tensor = torch.tensor(
+            input_ids = torch.tensor(
                 [eval_seq_padded],
                 dtype=torch.long,
                 device=device,
             )
 
-            logits = model(input_ids_tensor)
+            logits = model(input_ids)
+            item_scores = logits[0, mask_position].detach().cpu().numpy()
 
-            # Extract predictions at the MASK position.
-            mask_logits = (
-                logits[0, mask_position]
-                .detach()
-                .cpu()
-                .numpy()
-            )
+            item_scores[pad_token_id] = -float("inf")
+            item_scores[mask_token_id] = -float("inf")
 
-            # Exclude special tokens.
-            mask_logits[pad_token_id] = -float("inf")
-            mask_logits[mask_token_id] = -float("inf")
-
-            # Exclude items already seen in the input history.
             if exclude_seen:
                 for seen_id in sequence:
                     seen_id = int(seen_id)
-
                     if 0 <= seen_id < vocab_size:
-                        mask_logits[seen_id] = -float("inf")
+                        item_scores[seen_id] = -float("inf")
 
-            # Candidate universe:
-            #   0 = PAD
-            #   1 = MASK
-            #   2 ... vocab_size-1 = actual items
-            item_scores = [
-                (
-                    item_id,
-                    float(mask_logits[item_id]),
-                )
-                for item_id in range(2, vocab_size)
-            ]
-
-            item_scores.sort(
-                key=lambda x: x[1],
+            ranked_items = sorted(
+                range(2, vocab_size),
+                key=lambda item_id: float(item_scores[item_id]),
                 reverse=True,
             )
 
-            ranked_items = [
-                item_id
-                for item_id, _ in item_scores
-            ]
-
-            metrics = calculate_metrics(
-                ranked_items,
-                target,
-                top_ks=[5, 10],
+            user_metrics = calculate_metrics(
+                ranked_items=ranked_items,
+                target=target,
+                top_ks=(5, 10),
             )
+            all_metrics.append(user_metrics)
 
-            all_hr_5.append(metrics["hr_5"])
-            all_hr_10.append(metrics["hr_10"])
-            all_ndcg_5.append(metrics["ndcg_5"])
-            all_ndcg_10.append(metrics["ndcg_10"])
-
-            # Store first five users for debugging.
             if len(debug_outputs) < 5:
-
-                if target in ranked_items:
-                    target_rank = (
-                        ranked_items.index(target) + 1
-                    )
-                else:
-                    target_rank = -1
+                target_rank = (
+                    ranked_items.index(target) + 1
+                    if target in ranked_items
+                    else -1
+                )
 
                 debug_outputs.append(
                     {
@@ -259,20 +214,21 @@ def evaluate_bert4rec(
                         "target": target,
                         "top_10": ranked_items[:10],
                         "rank": target_rank,
-                        "hit_5": bool(metrics["hr_5"]),
-                        "hit_10": bool(metrics["hr_10"]),
+                        "hit_5": bool(user_metrics["HR@5"]),
+                        "hit_10": bool(user_metrics["HR@10"]),
                     }
                 )
 
-    if not all_hr_5:
-        raise ValueError(
-            "No users were available for evaluation."
-        )
+    if not all_metrics:
+        raise ValueError("No users were available for BERT4Rec evaluation.")
+
+    if was_training:
+        model.train()
 
     return {
-        "hr_5": float(np.mean(all_hr_5)),
-        "hr_10": float(np.mean(all_hr_10)),
-        "ndcg_5": float(np.mean(all_ndcg_5)),
-        "ndcg_10": float(np.mean(all_ndcg_10)),
+        "HR@5": float(np.mean([m["HR@5"] for m in all_metrics])),
+        "HR@10": float(np.mean([m["HR@10"] for m in all_metrics])),
+        "NDCG@5": float(np.mean([m["NDCG@5"] for m in all_metrics])),
+        "NDCG@10": float(np.mean([m["NDCG@10"] for m in all_metrics])),
         "debug_outputs": debug_outputs,
     }
