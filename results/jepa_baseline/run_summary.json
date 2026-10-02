@@ -1,0 +1,63 @@
+{
+  "model": "JEPA",
+  "experiment_name": "jepa_baseline",
+  "dataset": "MovieLens-1M",
+  "run_start": "2026-10-01T21:34:13.908311",
+  "run_end": "2026-10-01T21:47:42.671052",
+  "device": "cuda",
+  "seed": 42,
+  "configured_epochs": 10,
+  "completed_epochs": 10,
+  "best_epoch": 10,
+  "best_metrics": {
+    "HR@5": 0.08162251859903336,
+    "HR@10": 0.11506622284650803,
+    "NDCG@5": 0.05548400804400444,
+    "NDCG@10": 0.06631980091333389
+  },
+  "best_epoch_loss": 0.8664706848313956,
+  "timing": {
+    "total_training_time_seconds": 808.7627293349942,
+    "total_training_time_minutes": 13.479378822249904,
+    "average_epoch_time_seconds": 80.87627293349942,
+    "average_train_time_seconds": 80.50670599530568,
+    "average_validation_time_seconds": 0.2689409571001306
+  },
+  "hardware": {
+    "device": "cuda",
+    "peak_gpu_memory_gb": 0.2043604850769043
+  },
+  "model_parameters": {
+    "total": 1428864,
+    "trainable": 991360
+  },
+  "training_configuration": {
+    "batch_size": 64,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "num_workers": 0,
+    "mixed_precision": true,
+    "ema_decay": 0.996,
+    "patience": 3
+  },
+  "model_configuration": {
+    "vocab_size": 3418,
+    "max_seq_len": 200,
+    "hidden_dim": 128,
+    "num_layers": 2,
+    "num_heads": 4,
+    "feed_forward_dim": 512,
+    "dropout": 0.1,
+    "pad_token_id": 0
+  },
+  "data": {
+    "training_samples": 642719,
+    "validation_samples": 6040,
+    "training_batches_per_epoch": 10042,
+    "validation_batches": 95
+  },
+  "files": {
+    "checkpoint": "checkpoints/jepa_baseline/jepa_baseline_best.pt",
+    "epoch_history": "results/jepa_baseline/training_history.csv"
+  }
+}
