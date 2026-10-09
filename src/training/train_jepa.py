@@ -19,9 +19,9 @@ from pathlib import Path
 import pandas as pd
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
 
 from src.data.datasets import JEPADataset
+from src.data.gpu_loader import GPUBatchLoader
 from src.evaluation.evaluate import evaluate_jepa
 from src.models.jepa import JEPA
 from src.training.ema import EMA
@@ -110,17 +110,22 @@ def _resolve_device(config: dict) -> torch.device:
 
 def train_one_epoch(
     model: JEPA,
-    dataloader: DataLoader,
+    dataloader: GPUBatchLoader,
     optimizer: torch.optim.Optimizer,
     scaler: torch.amp.GradScaler,
     ema: EMA,
     device: torch.device,
     use_amp: bool,
+    amp_dtype: torch.dtype = torch.float16,
+    forward_model: torch.nn.Module | None = None,
 ) -> tuple[float, float]:
     """Train JEPA for one epoch and return loss and elapsed time."""
 
     model.train()
-    running_loss = 0.0
+    forward_model = forward_model if forward_model is not None else model
+
+    # Accumulate on-device; calling .item() every step forces a GPU sync.
+    running_loss = torch.zeros((), device=device)
     epoch_start = time.perf_counter()
 
     for batch in dataloader:
@@ -132,9 +137,10 @@ def train_one_epoch(
 
         with torch.amp.autocast(
             "cuda",
+            dtype=amp_dtype,
             enabled=use_amp and device.type == "cuda",
         ):
-            z_pred, z_target = model(
+            z_pred, z_target = forward_model(
                 context_sequence=context,
                 actual_lens=actual_lens,
                 target_item=target,
@@ -158,12 +164,12 @@ def train_one_epoch(
             optimizer.step()
 
         ema.update()
-        running_loss += loss.detach().item()
+        running_loss += loss.detach().float()
 
     synchronize_cuda(device)
 
     elapsed = time.perf_counter() - epoch_start
-    average_loss = running_loss / len(dataloader)
+    average_loss = running_loss.item() / len(dataloader)
 
     return average_loss, elapsed
 
@@ -171,7 +177,7 @@ def train_one_epoch(
 @torch.no_grad()
 def validate(
     model: JEPA,
-    validation_loader: DataLoader,
+    validation_loader: GPUBatchLoader,
     device: torch.device,
     num_items: int,
 ) -> dict[str, float]:
@@ -222,24 +228,28 @@ def train(config: dict) -> dict:
     )
 
     batch_size = training_config["batch_size"]
+    # Unused now (data lives on the GPU); kept so run_summary.json keeps its schema.
     num_workers = training_config.get("num_workers", 0)
+    trim_padding = training_config.get("trim_padding", True)
+    bucket_chunk_batches = training_config.get("length_bucketing", 0)
 
-    train_loader = DataLoader(
+    train_loader = GPUBatchLoader(
         train_dataset,
         batch_size=batch_size,
+        device=device,
         shuffle=True,
-        num_workers=num_workers,
-        pin_memory=device.type == "cuda",
         drop_last=True,
+        trim_padding=trim_padding,
+        bucket_chunk_batches=bucket_chunk_batches,
     )
 
-    validation_loader = DataLoader(
+    validation_loader = GPUBatchLoader(
         validation_dataset,
         batch_size=batch_size,
+        device=device,
         shuffle=False,
-        num_workers=num_workers,
-        pin_memory=device.type == "cuda",
         drop_last=False,
+        trim_padding=trim_padding,
     )
 
     model = JEPA(
@@ -288,9 +298,25 @@ def train(config: dict) -> dict:
         training_config.get("mixed_precision", True)
         and device.type == "cuda"
     )
+    amp_dtype_name = training_config.get("amp_dtype", "float16")
+    if amp_dtype_name not in ("float16", "bfloat16"):
+        raise ValueError(f"amp_dtype must be float16 or bfloat16, got {amp_dtype_name}.")
+    amp_dtype = getattr(torch, amp_dtype_name)
+    if use_amp and amp_dtype is torch.bfloat16 and not torch.cuda.is_bf16_supported():
+        raise RuntimeError("bfloat16 was requested but this GPU does not support it.")
+
+    # Loss scaling is only needed for float16; a disabled scaler is a no-op.
     scaler = torch.amp.GradScaler(
         "cuda",
-        enabled=use_amp,
+        enabled=use_amp and amp_dtype is torch.float16,
+    )
+
+    # Compile only the training forward pass. ``model`` stays uncompiled so
+    # EMA, validation, and checkpointing are unaffected. dynamic=True avoids
+    # a recompile for every distinct trimmed sequence length.
+    use_compile = training_config.get("compile", False)
+    forward_model = (
+        torch.compile(model, dynamic=True) if use_compile else model
     )
 
     experiment_name = output_config["experiment_name"]
@@ -340,6 +366,8 @@ def train(config: dict) -> dict:
             ema=ema,
             device=device,
             use_amp=use_amp,
+            amp_dtype=amp_dtype,
+            forward_model=forward_model,
         )
         total_train_time += train_time
 
@@ -488,6 +516,10 @@ def train(config: dict) -> dict:
             "weight_decay": training_config.get("weight_decay", 0.0),
             "num_workers": num_workers,
             "mixed_precision": use_amp,
+            "amp_dtype": amp_dtype_name,
+            "compile": use_compile,
+            "trim_padding": trim_padding,
+            "length_bucketing": bucket_chunk_batches,
             "ema_decay": ema_decay,
             "patience": patience,
         },
