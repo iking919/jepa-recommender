@@ -29,6 +29,10 @@ training:
   patience: 5
   ema_decay: 0.996
   mixed_precision: true
+  amp_dtype: "float16"      # "bfloat16" removes the need for loss scaling
+  compile: false             # torch.compile the training forward pass
+  trim_padding: false        # off by default; benchmark before enabling
+  length_bucketing: 0        # >1 = sort by length within N-batch chunks
   num_workers: 0
 
 output:
