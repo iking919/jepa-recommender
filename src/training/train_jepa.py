@@ -230,7 +230,7 @@ def train(config: dict) -> dict:
     batch_size = training_config["batch_size"]
     # Unused now (data lives on the GPU); kept so run_summary.json keeps its schema.
     num_workers = training_config.get("num_workers", 0)
-    trim_padding = training_config.get("trim_padding", True)
+    trim_padding = training_config.get("trim_padding", False)
     bucket_chunk_batches = training_config.get("length_bucketing", 0)
 
     train_loader = GPUBatchLoader(

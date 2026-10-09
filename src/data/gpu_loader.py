@@ -29,9 +29,12 @@ class GPUBatchLoader:
         device: Device the data is stored on and batches are returned on.
         shuffle: Reshuffle every epoch (training).
         drop_last: Drop the final incomplete batch.
-        trim_padding: Slice each batch to its longest valid context.
-            Contexts are right-padded, so positions and padding masks are
-            unchanged and the result is mathematically identical.
+        trim_padding: Slice each batch to its longest valid context
+            (rounded up to a multiple of 8 for tensor-core/attention-kernel
+            alignment). Contexts are right-padded, so positions and padding
+            masks are unchanged and the result is mathematically identical.
+            Off by default: with random batches the longest context is
+            usually near max_seq_len, so the saving can be small.
         bucket_chunk_batches: If > 1 (and ``shuffle``), sort samples by
             length inside chunks of ``batch_size * bucket_chunk_batches``
             so batches have similar lengths and trim more padding. Batch
@@ -45,7 +48,7 @@ class GPUBatchLoader:
         device: torch.device,
         shuffle: bool = False,
         drop_last: bool = False,
-        trim_padding: bool = True,
+        trim_padding: bool = False,
         bucket_chunk_batches: int = 0,
     ) -> None:
         if int(dataset.contexts.max()) > torch.iinfo(torch.int16).max:
@@ -106,6 +109,7 @@ class GPUBatchLoader:
 
             if self.trim_padding:
                 width = max(1, int(self._lens_cpu[idx_cpu].max()))
+                width = min(context.shape[1], -(-width // 8) * 8)
                 context = context[:, :width]
 
             yield {
