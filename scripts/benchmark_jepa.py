@@ -34,6 +34,7 @@ VARIANTS: dict[str, dict] = {
     "trim": {"trim_padding": True},
     "bf16": {"amp_dtype": "bfloat16"},
     "compile": {"compile": True},
+    "bf16_compile": {"amp_dtype": "bfloat16", "compile": True},
     "trim_bucket20": {"trim_padding": True, "length_bucketing": 20},
 }
 
