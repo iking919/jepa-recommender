@@ -1,0 +1,44 @@
+# JEPA with causal one-pass training.
+#
+# Same model size as jepa_tuned.yaml; the encoder is causal and each epoch
+# encodes every user sequence once (a few windows per user) instead of one
+# prefix per target. The optimization settings below are starting values,
+# not tuned: an epoch now has ~100x fewer forward passes but also far fewer
+# optimizer steps, so expect to need more epochs than the prefix model.
+
+seed: 42
+device: "cuda"
+
+data:
+  train_path: "data/processed/ml-1m/jepa/train_context_target.parquet"
+  validation_path: "data/processed/ml-1m/jepa/validation.parquet"
+  test_path: "data/processed/ml-1m/jepa/test.parquet"
+
+model:
+  vocab_size: 3418
+  max_seq_len: 200
+  hidden_dim: 256
+  num_layers: 4
+  num_heads: 8
+  feed_forward_dim: 1024
+  dropout: 0.2
+  pad_token_id: 0
+  causal: true               # required by train_jepa_causal and evaluation
+
+training:
+  batch_size: 64             # windows per step (~4-5k supervised targets)
+  learning_rate: 0.0005
+  weight_decay: 0.01
+  num_epochs: 150
+  patience: 20
+  window_stride: 100         # windows start every N items; 100 = 50% overlap
+  ema_decay: 0.996
+  mixed_precision: true
+  amp_dtype: "bfloat16"
+  compile: false             # enable after the first run checks out
+
+output:
+  experiment_name: "jepa_causal"
+  checkpoint_dir: "checkpoints/jepa_causal"
+  results_dir: "results/jepa_causal"
+  best_checkpoint_name: "jepa_causal_best.pt"

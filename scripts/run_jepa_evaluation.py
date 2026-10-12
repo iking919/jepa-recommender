@@ -81,6 +81,7 @@ def main() -> None:
         feed_forward_dim=model_config["feed_forward_dim"],
         dropout=model_config["dropout"],
         pad_token_id=model_config.get("pad_token_id", 0),
+        causal=model_config.get("causal", False),
     ).to(device)
 
     checkpoint = load_checkpoint(args.checkpoint, map_location=device)

@@ -117,3 +117,57 @@ class GPUBatchLoader:
                 "actual_len": self.actual_lens.index_select(0, idx),
                 "target": self.targets.index_select(0, idx),
             }
+
+
+class GPUWindowLoader:
+    """Iterate over causal-training windows held entirely on one device.
+
+    Takes the arrays produced by ``src.data.sequence_windows.build_windows``
+    and yields ``{"input", "target", "mask"}`` batches, each of shape
+    ``(batch, max_seq_len)``. ``mask`` marks the positions whose target
+    contributes to the loss.
+    """
+
+    def __init__(
+        self,
+        windows: dict,
+        batch_size: int,
+        device: torch.device,
+        shuffle: bool = True,
+        drop_last: bool = True,
+    ) -> None:
+        if int(windows["inputs"].max()) > torch.iinfo(torch.int16).max:
+            raise ValueError("Item IDs exceed int16 range; use int32 storage.")
+
+        self.batch_size = batch_size
+        self.device = device
+        self.shuffle = shuffle
+        self.drop_last = drop_last
+
+        self.inputs = torch.from_numpy(windows["inputs"]).to(torch.int16).to(device)
+        self.targets = torch.from_numpy(windows["targets"]).to(torch.int16).to(device)
+        self.mask = torch.from_numpy(windows["mask"]).to(device)
+
+        self.num_windows = self.inputs.shape[0]
+        self.num_targets = int(self.mask.sum().item())
+
+    def __len__(self) -> int:
+        if self.drop_last:
+            return self.num_windows // self.batch_size
+        return math.ceil(self.num_windows / self.batch_size)
+
+    def __iter__(self) -> Iterator[dict[str, torch.Tensor]]:
+        n = self.num_windows
+        order = torch.randperm(n) if self.shuffle else torch.arange(n)
+
+        if self.drop_last:
+            order = order[: (n // self.batch_size) * self.batch_size]
+
+        for idx_cpu in order.split(self.batch_size):
+            idx = idx_cpu.to(self.device, non_blocking=True)
+
+            yield {
+                "input": self.inputs.index_select(0, idx).long(),
+                "target": self.targets.index_select(0, idx).long(),
+                "mask": self.mask.index_select(0, idx),
+            }
