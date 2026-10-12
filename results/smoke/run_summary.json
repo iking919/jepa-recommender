@@ -1,0 +1,75 @@
+{
+  "model": "JEPA (causal one-pass)",
+  "experiment_name": "smoke",
+  "dataset": "MovieLens-1M",
+  "run_start": "2026-10-12T14:58:22.334122",
+  "run_end": "2026-10-12T14:58:25.384094",
+  "device": "cuda",
+  "seed": 42,
+  "configured_epochs": 1,
+  "completed_epochs": 1,
+  "best_epoch": 1,
+  "best_metrics": {
+    "HR@5": 0.0023178807459771633,
+    "HR@10": 0.004470198880881071,
+    "NDCG@5": 0.0010107430862262845,
+    "NDCG@10": 0.001702775014564395
+  },
+  "best_epoch_loss": 0.9721831463752909,
+  "best_selection_score": 0.001702775014564395,
+  "timing": {
+    "total_training_time_seconds": 3.049942401004955,
+    "total_training_time_minutes": 0.05083237335008259,
+    "total_train_only_seconds": 1.67161378194578,
+    "time_to_best_epoch_seconds": 2.7712542510125786,
+    "average_epoch_time_seconds": 3.049942401004955,
+    "average_train_time_seconds": 1.67161378194578,
+    "average_validation_time_seconds": 1.0996404690667987
+  },
+  "hardware": {
+    "device": "cuda",
+    "gpu": "NVIDIA A100 80GB PCIe",
+    "peak_gpu_memory_gb": 0.7783637046813965
+  },
+  "model_parameters": {
+    "total": 5485824,
+    "trainable": 4610816
+  },
+  "training_configuration": {
+    "batch_size": 64,
+    "learning_rate": 0.0005,
+    "weight_decay": 0.01,
+    "mixed_precision": true,
+    "amp_dtype": "bfloat16",
+    "compile": false,
+    "ema_decay": 0.996,
+    "patience": 20,
+    "window_stride": 100,
+    "lr_schedule": "constant",
+    "warmup_epochs": 0,
+    "min_lr_ratio": 0.0,
+    "selection_window": 1
+  },
+  "model_configuration": {
+    "vocab_size": 3418,
+    "max_seq_len": 200,
+    "hidden_dim": 256,
+    "num_layers": 4,
+    "num_heads": 8,
+    "feed_forward_dim": 1024,
+    "dropout": 0.2,
+    "pad_token_id": 0,
+    "causal": true
+  },
+  "data": {
+    "sequences": 6040,
+    "training_windows": 6040,
+    "supervised_targets_per_epoch": 642719,
+    "training_batches_per_epoch": 94,
+    "validation_samples": 6040
+  },
+  "files": {
+    "checkpoint": "checkpoints/smoke/smoke_best.pt",
+    "epoch_history": "results/smoke/training_history.csv"
+  }
+}

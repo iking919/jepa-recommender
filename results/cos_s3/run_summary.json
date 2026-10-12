@@ -1,0 +1,75 @@
+{
+  "model": "JEPA (causal one-pass)",
+  "experiment_name": "cos_s3",
+  "dataset": "MovieLens-1M",
+  "run_start": "2026-10-12T15:25:06.109266",
+  "run_end": "2026-10-12T15:27:24.904036",
+  "device": "cuda",
+  "seed": 3,
+  "configured_epochs": 60,
+  "completed_epochs": 60,
+  "best_epoch": 44,
+  "best_metrics": {
+    "HR@5": 0.14403973519802094,
+    "HR@10": 0.1917218565940857,
+    "NDCG@5": 0.10179602354764938,
+    "NDCG@10": 0.11722859740257263
+  },
+  "best_epoch_loss": 0.8383897821953956,
+  "best_selection_score": 0.11749816437562306,
+  "timing": {
+    "total_training_time_seconds": 138.79473888804205,
+    "total_training_time_minutes": 2.313245648134034,
+    "total_train_only_seconds": 70.73824393632822,
+    "time_to_best_epoch_seconds": 94.19073040247895,
+    "average_epoch_time_seconds": 2.313245648134034,
+    "average_train_time_seconds": 1.178970732272137,
+    "average_validation_time_seconds": 0.9695095564859609
+  },
+  "hardware": {
+    "device": "cuda",
+    "gpu": "NVIDIA A100 80GB PCIe",
+    "peak_gpu_memory_gb": 0.7783637046813965
+  },
+  "model_parameters": {
+    "total": 5485824,
+    "trainable": 4610816
+  },
+  "training_configuration": {
+    "batch_size": 64,
+    "learning_rate": 0.0005,
+    "weight_decay": 0.01,
+    "mixed_precision": true,
+    "amp_dtype": "bfloat16",
+    "compile": false,
+    "ema_decay": 0.996,
+    "patience": 100,
+    "window_stride": 100,
+    "lr_schedule": "cosine",
+    "warmup_epochs": 2,
+    "min_lr_ratio": 0.0,
+    "selection_window": 3
+  },
+  "model_configuration": {
+    "vocab_size": 3418,
+    "max_seq_len": 200,
+    "hidden_dim": 256,
+    "num_layers": 4,
+    "num_heads": 8,
+    "feed_forward_dim": 1024,
+    "dropout": 0.2,
+    "pad_token_id": 0,
+    "causal": true
+  },
+  "data": {
+    "sequences": 6040,
+    "training_windows": 6040,
+    "supervised_targets_per_epoch": 642719,
+    "training_batches_per_epoch": 94,
+    "validation_samples": 6040
+  },
+  "files": {
+    "checkpoint": "checkpoints/cos_s3/cos_s3_best.pt",
+    "epoch_history": "results/cos_s3/training_history.csv"
+  }
+}

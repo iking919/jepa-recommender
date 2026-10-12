@@ -1,0 +1,67 @@
+{
+  "model": "JEPA",
+  "experiment_name": "bench_bf16_compile",
+  "dataset": "MovieLens-1M",
+  "run_start": "2026-10-09T21:04:42.114508",
+  "run_end": "2026-10-09T21:11:10.253618",
+  "device": "cuda",
+  "seed": 42,
+  "configured_epochs": 3,
+  "completed_epochs": 3,
+  "best_epoch": 3,
+  "best_metrics": {
+    "HR@5": 0.08029801398515701,
+    "HR@10": 0.12251655757427216,
+    "NDCG@5": 0.05276503041386604,
+    "NDCG@10": 0.06624351441860199
+  },
+  "best_epoch_loss": 0.9019640189243028,
+  "timing": {
+    "total_training_time_seconds": 388.13909666705877,
+    "total_training_time_minutes": 6.4689849444509795,
+    "average_epoch_time_seconds": 129.37969888901958,
+    "average_train_time_seconds": 127.73224358466298,
+    "average_validation_time_seconds": 0.7877124983351678
+  },
+  "hardware": {
+    "device": "cuda",
+    "peak_gpu_memory_gb": 4.930427074432373
+  },
+  "model_parameters": {
+    "total": 5485824,
+    "trainable": 4610816
+  },
+  "training_configuration": {
+    "batch_size": 512,
+    "learning_rate": 0.0005,
+    "weight_decay": 0.01,
+    "num_workers": 0,
+    "mixed_precision": true,
+    "amp_dtype": "bfloat16",
+    "compile": true,
+    "trim_padding": false,
+    "length_bucketing": 0,
+    "ema_decay": 0.996,
+    "patience": 4
+  },
+  "model_configuration": {
+    "vocab_size": 3418,
+    "max_seq_len": 200,
+    "hidden_dim": 256,
+    "num_layers": 4,
+    "num_heads": 8,
+    "feed_forward_dim": 1024,
+    "dropout": 0.2,
+    "pad_token_id": 0
+  },
+  "data": {
+    "training_samples": 642719,
+    "validation_samples": 6040,
+    "training_batches_per_epoch": 1255,
+    "validation_batches": 12
+  },
+  "files": {
+    "checkpoint": "checkpoints/benchmarks/bf16_compile/bench_bf16_compile.pt",
+    "epoch_history": "results/benchmarks/bf16_compile/training_history.csv"
+  }
+}
