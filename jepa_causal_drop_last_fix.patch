@@ -1,0 +1,14 @@
+diff --git a/src/training/train_jepa_causal.py b/src/training/train_jepa_causal.py
+--- a/src/training/train_jepa_causal.py
++++ b/src/training/train_jepa_causal.py
+@@ -154,7 +154,9 @@
+     train_loader = GPUWindowLoader(
+         windows,
+         batch_size=training_config["batch_size"],
+         device=device,
+         shuffle=True,
+-        drop_last=True,
++        # Retain the final partial batch so every training window is used.
++        # With 6,040 windows and batch_size=64, drop_last=True omits 24.
++        drop_last=False,
+     )
