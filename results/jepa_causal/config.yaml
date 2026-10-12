@@ -13,21 +13,24 @@ model:
   feed_forward_dim: 1024
   dropout: 0.2
   pad_token_id: 0
+  causal: true
 training:
-  batch_size: 512
+  batch_size: 64
   learning_rate: 0.0005
   weight_decay: 0.01
-  num_epochs: 3
-  patience: 4
+  num_epochs: 150
+  patience: 20
+  window_stride: 100
+  lr_schedule: constant
+  warmup_epochs: 0
+  min_lr_ratio: 0.0
+  selection_window: 1
   ema_decay: 0.996
   mixed_precision: true
   amp_dtype: bfloat16
-  compile: true
-  trim_padding: false
-  length_bucketing: 0
-  num_workers: 0
+  compile: false
 output:
-  experiment_name: bench_bf16_compile
-  checkpoint_dir: checkpoints/benchmarks/bf16_compile
-  results_dir: results/benchmarks/bf16_compile
-  best_checkpoint_name: bench_bf16_compile.pt
+  experiment_name: jepa_causal
+  checkpoint_dir: checkpoints/jepa_causal
+  results_dir: results/jepa_causal
+  best_checkpoint_name: jepa_causal_best.pt
