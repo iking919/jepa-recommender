@@ -156,9 +156,7 @@ def train(config: dict) -> dict:
         batch_size=training_config["batch_size"],
         device=device,
         shuffle=True,
-        # Retain the final partial batch so every training window is used.
-        # With 6,040 windows and batch_size=64, drop_last=True omits 24.
-        drop_last=False,
+        drop_last=True,
     )
 
     if train_loader.num_targets != len(train_df):
