@@ -26,6 +26,7 @@ from pathlib import Path
 import pandas as pd
 import torch
 import torch.nn.functional as F
+import yaml
 
 from src.data.datasets import JEPADataset
 from src.data.gpu_loader import GPUBatchLoader, GPUWindowLoader
@@ -44,7 +45,9 @@ from src.training.train_jepa import (
 from src.utils.checkpointing import save_checkpoint
 from src.utils.config import load_config
 from src.utils.logging import setup_logging
+from src.utils.overrides import apply_name, apply_overrides
 from src.utils.reproducibility import set_seed
+from src.utils.schedules import lr_factor, trailing_mean
 
 
 logger = logging.getLogger(__name__)
@@ -60,6 +63,7 @@ def train_one_epoch(
     device: torch.device,
     use_amp: bool,
     amp_dtype: torch.dtype,
+    scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
 ) -> tuple[float, float]:
     """Train for one epoch over windows; return mean loss and elapsed time."""
 
@@ -96,6 +100,10 @@ def train_one_epoch(
             optimizer.step()
 
         ema.update()
+
+        if scheduler is not None:
+            scheduler.step()
+
         running_loss += loss.detach().float()
 
     synchronize_cuda(device)
@@ -223,6 +231,36 @@ def train(config: dict) -> dict:
         decay=ema_decay,
     )
 
+    lr_schedule = training_config.get("lr_schedule", "constant")
+    warmup_epochs = training_config.get("warmup_epochs", 0)
+    min_lr_ratio = training_config.get("min_lr_ratio", 0.0)
+    selection_window = training_config.get("selection_window", 1)
+
+    steps_per_epoch = len(train_loader)
+    total_steps = training_config["num_epochs"] * steps_per_epoch
+    warmup_steps = int(round(warmup_epochs * steps_per_epoch))
+
+    scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer,
+        lr_lambda=lambda step: lr_factor(
+            step,
+            total_steps,
+            warmup_steps,
+            min_lr_ratio,
+            lr_schedule,
+        ),
+    )
+
+    if (
+        lr_schedule == "cosine"
+        and training_config.get("patience", 15) < training_config["num_epochs"]
+    ):
+        logger.warning(
+            "Cosine schedule with patience < num_epochs can stop training "
+            "before the learning rate has decayed. Set patience >= "
+            "num_epochs to run the full schedule."
+        )
+
     use_amp = (
         training_config.get("mixed_precision", True)
         and device.type == "cuda"
@@ -258,11 +296,19 @@ def train(config: dict) -> dict:
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     results_dir.mkdir(parents=True, exist_ok=True)
 
+    # Resolved config (after --set/--name), so evaluation can reuse it.
+    (results_dir / "config.yaml").write_text(
+        yaml.safe_dump(config, sort_keys=False),
+        encoding="utf-8",
+    )
+
     best_checkpoint = checkpoint_dir / output_config["best_checkpoint_name"]
     history_path = results_dir / "training_history.csv"
     summary_path = results_dir / "run_summary.json"
 
+    best_score = float("-inf")
     best_ndcg10 = float("-inf")
+    ndcg_history: list[float] = []
     best_epoch = 0
     best_metrics: dict = {}
     best_epoch_record: dict = {}
@@ -292,6 +338,7 @@ def train(config: dict) -> dict:
             device=device,
             use_amp=use_amp,
             amp_dtype=amp_dtype,
+            scheduler=scheduler,
         )
         total_train_time += train_time
 
@@ -309,6 +356,10 @@ def train(config: dict) -> dict:
         epoch_time = train_time + validation_time
         peak_gpu_memory_gb = get_peak_gpu_memory_gb(device)
 
+        ndcg_history.append(metrics["NDCG@10"])
+        selection_score = trailing_mean(ndcg_history, selection_window)
+        current_lr = optimizer.param_groups[0]["lr"]
+
         record = {
             "epoch": epoch,
             "loss": train_loss,
@@ -316,6 +367,8 @@ def train(config: dict) -> dict:
             "HR@10": metrics["HR@10"],
             "NDCG@5": metrics["NDCG@5"],
             "NDCG@10": metrics["NDCG@10"],
+            "NDCG@10_selection": selection_score,
+            "lr": current_lr,
             "train_time_seconds": train_time,
             "validation_time_seconds": validation_time,
             "epoch_time_seconds": epoch_time,
@@ -326,18 +379,21 @@ def train(config: dict) -> dict:
 
         logger.info(
             "Epoch %03d/%03d | loss=%.4f | HR@10=%.4f | NDCG@10=%.4f | "
-            "train=%.1fs | val=%.1fs | peak_gpu=%.2f GB",
+            "sel=%.4f | lr=%.2e | train=%.1fs | val=%.1fs | peak_gpu=%.2f GB",
             epoch,
             configured_epochs,
             train_loss,
             metrics["HR@10"],
             metrics["NDCG@10"],
+            selection_score,
+            current_lr,
             train_time,
             validation_time,
             peak_gpu_memory_gb,
         )
 
-        if metrics["NDCG@10"] > best_ndcg10:
+        if selection_score > best_score:
+            best_score = selection_score
             best_ndcg10 = metrics["NDCG@10"]
             best_epoch = epoch
             best_metrics = dict(metrics)
@@ -361,8 +417,8 @@ def train(config: dict) -> dict:
 
         if epochs_without_improvement >= patience:
             logger.info(
-                "Early stopping after %d epochs without validation "
-                "NDCG@10 improvement.",
+                "Early stopping after %d epochs without improvement in the "
+                "validation selection score.",
                 patience,
             )
             break
@@ -388,6 +444,7 @@ def train(config: dict) -> dict:
             for name in ("HR@5", "HR@10", "NDCG@5", "NDCG@10")
         },
         "best_epoch_loss": best_epoch_record.get("loss"),
+        "best_selection_score": best_score,
         "timing": {
             "total_training_time_seconds": total_time,
             "total_training_time_minutes": total_time / 60.0,
@@ -434,6 +491,10 @@ def train(config: dict) -> dict:
             "ema_decay": ema_decay,
             "patience": patience,
             "window_stride": stride,
+            "lr_schedule": lr_schedule,
+            "warmup_epochs": warmup_epochs,
+            "min_lr_ratio": min_lr_ratio,
+            "selection_window": selection_window,
         },
         "model_configuration": model_config,
         "data": {
@@ -452,9 +513,11 @@ def train(config: dict) -> dict:
     save_run_summary(summary, summary_path)
 
     logger.info(
-        "Training complete. Best epoch: %d | best NDCG@10: %.4f",
+        "Training complete. Best epoch: %d | NDCG@10 at that epoch: %.4f "
+        "| selection score: %.4f",
         best_epoch,
         best_ndcg10,
+        best_score,
     )
     logger.info("Results directory: %s", results_dir)
 
@@ -473,10 +536,29 @@ def main() -> None:
         required=True,
         help="Path to the YAML experiment configuration.",
     )
+    parser.add_argument(
+        "--set",
+        dest="overrides",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Override a config value, e.g. --set training.learning_rate=0.001. "
+        "Repeatable. Use +KEY=VALUE to add a new key.",
+    )
+    parser.add_argument(
+        "--name",
+        default=None,
+        help="Experiment name; redirects checkpoints/ and results/ to "
+        "checkpoints/<name> and results/<name>.",
+    )
     args = parser.parse_args()
 
+    config = apply_overrides(load_config(args.config), args.overrides)
+    if args.name:
+        config = apply_name(config, args.name)
+
     setup_logging()
-    train(load_config(args.config))
+    train(config)
 
 
 if __name__ == "__main__":
