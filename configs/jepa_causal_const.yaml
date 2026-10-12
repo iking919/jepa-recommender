@@ -42,7 +42,7 @@ training:
   compile: false             # enable after the first run checks out
 
 output:
-  experiment_name: "jepa_causal"
-  checkpoint_dir: "checkpoints/jepa_causal"
-  results_dir: "results/jepa_causal"
-  best_checkpoint_name: "jepa_causal_best.pt"
+  experiment_name: "jepa_causal_const"
+  checkpoint_dir: "checkpoints/jepa_causal_const"
+  results_dir: "results/jepa_causal_const"
+  best_checkpoint_name: "jepa_causal_const_best.pt"
