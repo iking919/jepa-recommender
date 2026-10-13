@@ -367,12 +367,6 @@ def train(config: dict) -> dict:
     output_config["results_dir"] = str(results_dir)
     output_config["best_checkpoint_name"] = best_checkpoint_name
 
-    # Save the resolved configuration, including --set and --name changes.
-    (results_dir / "config.yaml").write_text(
-        yaml.safe_dump(config, sort_keys=False),
-        encoding="utf-8",
-    )
-
     logger.info("Experiment: %s", experiment_name)
     logger.info("Checkpoint directory: %s", checkpoint_dir)
     logger.info("Results directory: %s", results_dir)
