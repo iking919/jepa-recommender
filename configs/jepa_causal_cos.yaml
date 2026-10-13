@@ -1,4 +1,4 @@
-# JEPA with causal one-pass training.
+# JEPA with causal one-pass training, using cosine learning rate schedule.
 #
 # Same model size as jepa_tuned.yaml; the encoder is causal and each epoch
 # encodes every user sequence once (a few windows per user) instead of one
