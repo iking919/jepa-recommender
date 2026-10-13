@@ -244,6 +244,18 @@ python -m src.training.train_jepa --config configs/jepa_baseline.yaml
 python -m src.training.train_jepa --config configs/jepa_tuned.yaml
 ```
 
+### JEPA Causal (Constant Evaluation)
+
+```bash
+python -m src.training.train_jepa_causal --config configs/jepa_causal_const.yaml
+```
+
+### JEPA Causal (Cosine Evaluation)
+
+```bash
+python -m src.training.train_jepa_causal --config configs/jepa_causal_cos.yaml
+```
+
 Training saves model checkpoints under `checkpoints/` and experiment outputs under the corresponding `results/` directory, as specified by the training pipeline.
 
 ## Evaluation
