@@ -1,10 +1,10 @@
 {
   "model": "JEPA",
-  "checkpoint": "checkpoints/jepa_tuned/jepa_tuned_best.pt",
+  "checkpoint": "checkpoints/jepa_causal_const/jepa_causal_const_best.pt",
   "metrics": {
-    "HR@5": 0.127317875623703,
-    "NDCG@5": 0.09276138991117477,
-    "HR@10": 0.1801324486732483,
-    "NDCG@10": 0.10976914316415787
+    "HR@5": 0.10894040018320084,
+    "NDCG@5": 0.07787875831127167,
+    "HR@10": 0.1423841118812561,
+    "NDCG@10": 0.08875413984060287
   }
 }
