@@ -2,23 +2,18 @@
 """
 One-pass (causal) JEPA training.
 
-The standard JEPA pipeline encodes one prefix per target, meaning each user's
-history is processed repeatedly. This pipeline divides each user's sequence
-into windows and uses a causal encoder to predict EMA target embeddings at
-every supervised position in one forward pass.
+Checkpoint saving is enabled by default. Disable it with:
+    training.save_checkpoint: false
 
-The same training targets are supervised as in the standard pipeline
-(see src.data.sequence_windows).
+Training histories, resolved configurations, and run summaries are always saved.
 
-Validation and testing remain unchanged: one context per user, last-position
-readout, and ranking over all items.
-
-Artifacts follow the same layout as train_jepa.py:
-
-    checkpoints/<experiment>/<experiment>_best.pt
+Default artifacts:
+    checkpoints/<experiment>/<experiment>_best.pt  (if enabled)
     results/<experiment>/config.yaml
     results/<experiment>/training_history.csv
     results/<experiment>/run_summary.json
+
+A custom output.results_dir overrides the default results directory.
 """
 
 from __future__ import annotations
@@ -57,7 +52,6 @@ from src.utils.logging import setup_logging
 from src.utils.overrides import apply_name, apply_overrides
 from src.utils.reproducibility import set_seed
 from src.utils.schedules import lr_factor, trailing_mean
-
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +92,6 @@ def train_one_epoch(
                 batch["target"],
             )
 
-        # Calculate cosine loss in float32 over supervised positions only.
         cosine = F.cosine_similarity(
             z_pred.float(),
             z_target.float(),
@@ -119,7 +112,7 @@ def train_one_epoch(
             loss.backward()
             optimizer.step()
 
-        # Update the target encoder using the EMA of the context encoder.
+        # Update the target encoder using EMA.
         ema.update()
 
         if scheduler is not None:
@@ -140,22 +133,22 @@ def train_one_epoch(
 def train(config: dict) -> dict:
     """Run a complete causal one-pass JEPA training experiment."""
 
-    # ---- reproducibility --------------------------------------------
+    # Reproducibility.
     seed = config.get("seed", 42)
     set_seed(seed)
 
-    # ---- device ------------------------------------------------------
+    # Device.
     device = _resolve_device(config)
     logger.info("Using device: %s", device)
 
     if device.type == "cuda":
         logger.info("GPU: %s", torch.cuda.get_device_name(device))
 
-    # ---- configuration ----------------------------------------------
+    # Configuration.
     data_config = config["data"]
     model_config = config["model"]
     training_config = config["training"]
-    output_config = config["output"]
+    output_config = config.setdefault("output", {})
 
     if not model_config.get("causal", False):
         raise ValueError(
@@ -170,7 +163,15 @@ def train(config: dict) -> dict:
         max_seq_len // 2,
     )
 
-    # ---- data --------------------------------------------------------
+    # Checkpoint saving is enabled unless explicitly disabled.
+    save_checkpoint_enabled = training_config.get(
+        "save_checkpoint", True
+    )
+
+    # -----------------------------------------------------------------
+    # Data
+    # -----------------------------------------------------------------
+
     train_df = pd.read_parquet(data_config["train_path"])
     validation_df = pd.read_parquet(data_config["validation_path"])
 
@@ -191,7 +192,6 @@ def train(config: dict) -> dict:
         batch_size=training_config["batch_size"],
         device=device,
         shuffle=True,
-        # Keep the final partial batch so every training window is used.
         drop_last=False,
     )
 
@@ -222,7 +222,10 @@ def train(config: dict) -> dict:
         drop_last=False,
     )
 
-    # ---- model -------------------------------------------------------
+    # -----------------------------------------------------------------
+    # Model
+    # -----------------------------------------------------------------
+
     model = JEPA(
         vocab_size=model_config["vocab_size"],
         max_seq_len=max_seq_len,
@@ -258,14 +261,20 @@ def train(config: dict) -> dict:
         f"{trainable_params:,}",
     )
 
-    # ---- optimizer ---------------------------------------------------
+    # -----------------------------------------------------------------
+    # Optimizer
+    # -----------------------------------------------------------------
+
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=training_config["learning_rate"],
         weight_decay=training_config.get("weight_decay", 0.0),
     )
 
-    # ---- EMA ---------------------------------------------------------
+    # -----------------------------------------------------------------
+    # EMA
+    # -----------------------------------------------------------------
+
     ema_decay = training_config.get("ema_decay", 0.996)
 
     ema = EMA(
@@ -274,7 +283,10 @@ def train(config: dict) -> dict:
         decay=ema_decay,
     )
 
-    # ---- learning-rate schedule -------------------------------------
+    # -----------------------------------------------------------------
+    # Learning-rate schedule
+    # -----------------------------------------------------------------
+
     lr_schedule = training_config.get("lr_schedule", "constant")
     warmup_epochs = training_config.get("warmup_epochs", 0)
     min_lr_ratio = training_config.get("min_lr_ratio", 0.0)
@@ -306,7 +318,10 @@ def train(config: dict) -> dict:
             "num_epochs to run the full schedule."
         )
 
-    # ---- mixed precision --------------------------------------------
+    # -----------------------------------------------------------------
+    # Mixed precision
+    # -----------------------------------------------------------------
+
     use_amp = (
         training_config.get("mixed_precision", True)
         and device.type == "cuda"
@@ -335,8 +350,10 @@ def train(config: dict) -> dict:
         enabled=use_amp and amp_dtype is torch.float16,
     )
 
-    # ---- compilation -------------------------------------------------
-    # Fixed-size windows provide consistent input shapes for compilation.
+    # -----------------------------------------------------------------
+    # Compilation
+    # -----------------------------------------------------------------
+
     use_compile = training_config.get("compile", False)
 
     forward_fn = (
@@ -345,34 +362,71 @@ def train(config: dict) -> dict:
         else model.forward_sequence
     )
 
-    # ---- outputs -----------------------------------------------------
-    # Match train_jepa.py: each experiment gets its own checkpoint and
-    # results directories. Derive paths from experiment_name so stale
-    # paths in a YAML file cannot redirect this experiment's artifacts.
+    # -----------------------------------------------------------------
+    # Output directories
+    # -----------------------------------------------------------------
+
     experiment_name = output_config["experiment_name"]
 
-    checkpoint_dir = Path("checkpoints") / experiment_name
-    results_dir = Path("results") / experiment_name
+    # Honor a custom results directory when one is provided.
+    # This allows grid-search trial results to live under:
+    # results/jepa_grid_search/<trial_name>/
+    configured_results_dir = output_config.get("results_dir")
 
-    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    if configured_results_dir:
+        results_dir = Path(configured_results_dir)
+    else:
+        results_dir = Path("results") / experiment_name
+
+    # Always preserve experiment results.
     results_dir.mkdir(parents=True, exist_ok=True)
 
-    best_checkpoint_name = f"{experiment_name}_best.pt"
-    best_checkpoint = checkpoint_dir / best_checkpoint_name
+    # Checkpoints remain enabled by default for ordinary training.
+    # During grid search, training.save_checkpoint=false prevents even
+    # creating a checkpoint directory.
+    if save_checkpoint_enabled:
+        configured_checkpoint_dir = output_config.get("checkpoint_dir")
+
+        if configured_checkpoint_dir:
+            checkpoint_dir = Path(configured_checkpoint_dir)
+        else:
+            checkpoint_dir = Path("checkpoints") / experiment_name
+
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        best_checkpoint_name = f"{experiment_name}_best.pt"
+        best_checkpoint = checkpoint_dir / best_checkpoint_name
+    else:
+        checkpoint_dir = None
+        best_checkpoint_name = None
+        best_checkpoint = None
+
     history_path = results_dir / "training_history.csv"
     summary_path = results_dir / "run_summary.json"
+    config_path = results_dir / "config.yaml"
 
-    # Store the resolved output paths in the saved configuration.
-    output_config["checkpoint_dir"] = str(checkpoint_dir)
+    # Record resolved output settings in the saved configuration.
+    output_config["checkpoint_dir"] = (
+        str(checkpoint_dir) if checkpoint_dir is not None else None
+    )
     output_config["results_dir"] = str(results_dir)
     output_config["best_checkpoint_name"] = best_checkpoint_name
+    output_config["save_checkpoint"] = save_checkpoint_enabled
 
     logger.info("Experiment: %s", experiment_name)
-    logger.info("Checkpoint directory: %s", checkpoint_dir)
     logger.info("Results directory: %s", results_dir)
-    logger.info("Best checkpoint: %s", best_checkpoint)
+    logger.info(
+        "Checkpoint saving: %s",
+        "ENABLED" if save_checkpoint_enabled else "DISABLED",
+    )
 
-    # ---- training state ----------------------------------------------
+    if save_checkpoint_enabled:
+        logger.info("Checkpoint directory: %s", checkpoint_dir)
+        logger.info("Best checkpoint: %s", best_checkpoint)
+
+    # -----------------------------------------------------------------
+    # Training state
+    # -----------------------------------------------------------------
+
     best_score = float("-inf")
     best_ndcg10 = float("-inf")
     ndcg_history: list[float] = []
@@ -391,12 +445,14 @@ def train(config: dict) -> dict:
     run_start = datetime.now().isoformat()
     total_start = time.perf_counter()
 
-    # ---- epoch loop --------------------------------------------------
+    # -----------------------------------------------------------------
+    # Epoch loop
+    # -----------------------------------------------------------------
+
     for epoch in range(1, configured_epochs + 1):
         if device.type == "cuda":
             torch.cuda.reset_peak_memory_stats(device)
 
-        # Train for one epoch.
         train_loss, train_time = train_one_epoch(
             model=model,
             forward_fn=forward_fn,
@@ -412,7 +468,7 @@ def train(config: dict) -> dict:
 
         total_train_time += train_time
 
-        # Evaluate using the same validation procedure as standard JEPA.
+        # Validation uses the same procedure as standard JEPA.
         validation_start = time.perf_counter()
 
         metrics = validate(
@@ -430,7 +486,6 @@ def train(config: dict) -> dict:
         epoch_time = train_time + validation_time
         peak_gpu_memory_gb = get_peak_gpu_memory_gb(device)
 
-        # Use the trailing mean of validation NDCG@10 for model selection.
         ndcg_history.append(metrics["NDCG@10"])
         selection_score = trailing_mean(
             ndcg_history,
@@ -439,7 +494,6 @@ def train(config: dict) -> dict:
 
         current_lr = optimizer.param_groups[0]["lr"]
 
-        # ---- epoch metrics -------------------------------------------
         record = {
             "epoch": epoch,
             "loss": train_loss,
@@ -474,8 +528,7 @@ def train(config: dict) -> dict:
             peak_gpu_memory_gb,
         )
 
-        # ---- checkpoint ------------------------------------------------
-        # Save the model whenever the selection score improves.
+        # Track the best epoch whether or not a checkpoint is saved.
         if selection_score > best_score:
             best_score = selection_score
             best_ndcg10 = metrics["NDCG@10"]
@@ -484,26 +537,33 @@ def train(config: dict) -> dict:
             best_epoch_record = dict(record)
             epochs_without_improvement = 0
 
-            save_checkpoint(
-                {
-                    "epoch": epoch,
-                    "model_state_dict": model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "scaler_state_dict": scaler.state_dict(),
-                    "metrics": metrics,
-                    "config": config,
-                },
-                best_checkpoint,
-            )
+            if save_checkpoint_enabled:
+                save_checkpoint(
+                    {
+                        "epoch": epoch,
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optimizer.state_dict(),
+                        "scaler_state_dict": scaler.state_dict(),
+                        "metrics": metrics,
+                        "config": config,
+                    },
+                    best_checkpoint,
+                )
 
-            logger.info(
-                "Saved new best checkpoint: %s",
-                best_checkpoint,
-            )
+                logger.info(
+                    "Saved new best checkpoint: %s",
+                    best_checkpoint,
+                )
+            else:
+                logger.info(
+                    "New best selection score: %.4f "
+                    "(checkpoint saving disabled)",
+                    best_score,
+                )
         else:
             epochs_without_improvement += 1
 
-        # ---- early stopping ------------------------------------------
+        # Early stopping.
         if epochs_without_improvement >= patience:
             logger.info(
                 "Early stopping after %d epochs without improvement "
@@ -512,7 +572,10 @@ def train(config: dict) -> dict:
             )
             break
 
-    # ---- run summary -------------------------------------------------
+    # -----------------------------------------------------------------
+    # Run summary
+    # -----------------------------------------------------------------
+
     synchronize_cuda(device)
 
     total_time = time.perf_counter() - total_start
@@ -534,7 +597,9 @@ def train(config: dict) -> dict:
             for name in ("HR@5", "HR@10", "NDCG@5", "NDCG@10")
         },
         "best_epoch_loss": best_epoch_record.get("loss"),
-        "best_selection_score": best_score,
+        "best_selection_score": (
+            best_score if best_epoch else None
+        ),
         "timing": {
             "total_training_time_seconds": total_time,
             "total_training_time_minutes": total_time / 60.0,
@@ -548,21 +613,18 @@ def train(config: dict) -> dict:
             ),
             "average_train_time_seconds": (
                 total_train_time / completed_epochs
-                if completed_epochs
-                else 0.0
+                if completed_epochs else 0.0
             ),
             "average_validation_time_seconds": (
                 total_validation_time / completed_epochs
-                if completed_epochs
-                else 0.0
+                if completed_epochs else 0.0
             ),
         },
         "hardware": {
             "device": str(device),
             "gpu": (
                 torch.cuda.get_device_name(device)
-                if device.type == "cuda"
-                else None
+                if device.type == "cuda" else None
             ),
             "peak_gpu_memory_gb": max(
                 (
@@ -590,6 +652,7 @@ def train(config: dict) -> dict:
             "warmup_epochs": warmup_epochs,
             "min_lr_ratio": min_lr_ratio,
             "selection_window": selection_window,
+            "save_checkpoint": save_checkpoint_enabled,
         },
         "model_configuration": model_config,
         "data": {
@@ -600,8 +663,13 @@ def train(config: dict) -> dict:
             "validation_samples": len(validation_dataset),
         },
         "files": {
-            "checkpoint": str(best_checkpoint),
+            "checkpoint": (
+                str(best_checkpoint)
+                if best_checkpoint is not None else None
+            ),
             "epoch_history": str(history_path),
+            "run_summary": str(summary_path),
+            "config": str(config_path),
         },
     }
 
@@ -614,6 +682,7 @@ def train(config: dict) -> dict:
         best_ndcg10,
         best_score,
     )
+    logger.info("Checkpoint saving: %s", save_checkpoint_enabled)
     logger.info("Results directory: %s", results_dir)
 
     return summary
@@ -655,7 +724,8 @@ def main() -> None:
         default=None,
         help=(
             "Experiment name; redirects artifacts to "
-            "checkpoints/<name> and results/<name>."
+            "checkpoints/<name> and results/<name> unless "
+            "a custom output.results_dir is configured."
         ),
     )
 

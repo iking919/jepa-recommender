@@ -1,207 +1,514 @@
+
 """
-Hyperparameter Grid Search for Causal JEPA (No Checkpoints Saved)
-- Searches across constant and cosine schedules, learning rates, weight decays, and warmups.
-- Completely deletes checkpoint files after each run to save disk space.
-- Maintains a master CSV table of all trial performances and saves a final report 
-  detailing the best parameters for constant and cosine schedules.
+Staged grid search for causal one-pass JEPA.
+
+All experiment outputs are stored under:
+    results/jepa_grid_search/
+
+Each trial receives its own subdirectory. The master CSV and JSON report
+are updated after every completed or failed trial.
+
+Checkpoints are disabled during the search. Training histories, configs,
+run summaries, and aggregate search results are retained.
 """
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-# Add project root to Python path so 'src' can be found when running from scripts/
-project_root = Path(__file__).resolve().parent.parent
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
-
+import argparse
 import copy
 import itertools
 import json
 import logging
-import shutil
+import math
+import sys
 from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import yaml
 
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from src.training.train_jepa_causal import train
-from src.utils.config import load_config
-from src.utils.logging import setup_logging
-
-logger = logging.getLogger(__name__)
 
 
-def run_grid_search(base_config_path: str) -> None:
-    setup_logging()
-    base_config = load_config(base_config_path)
+# ---------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------
 
-    # Define the hyperparameter search space
-    search_space = {
-        "lr_schedule": ["constant", "cosine"],
-        "learning_rate": [1e-4, 3e-4, 5e-4, 1e-3],
-        "weight_decay": [0.01, 0.05],
-        "warmup_epochs": [0, 5],
+LOGGER = logging.getLogger("jepa_causal_grid_search")
+
+
+def configure_logging() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(message)s",
+        handlers=[logging.StreamHandler(sys.stdout)],
+        force=True,
+    )
+
+
+# ---------------------------------------------------------------------
+# Search space
+# ---------------------------------------------------------------------
+
+SEARCH_SPACE = {
+    "lr_schedule": ["constant", "cosine"],
+    "learning_rate": [1e-4, 3e-4, 5e-4, 1e-3],
+    "weight_decay": [0.01, 0.05],
+    "warmup_epochs": [0, 5],
+}
+
+
+# ---------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------
+
+def is_finite_number(value: Any) -> bool:
+    """Return True if value can be interpreted as a finite number."""
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
+def to_json_safe(value: Any) -> Any:
+    """Convert common NumPy/Pandas values to JSON-compatible values."""
+    if isinstance(value, dict):
+        return {str(k): to_json_safe(v) for k, v in value.items()}
+
+    if isinstance(value, (list, tuple)):
+        return [to_json_safe(v) for v in value]
+
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+
+    # Handle NumPy scalar values without requiring NumPy as an import.
+    if hasattr(value, "item"):
+        try:
+            return to_json_safe(value.item())
+        except (ValueError, TypeError):
+            pass
+
+    # Handle paths and other objects conservatively.
+    if isinstance(value, Path):
+        return str(value)
+
+    return str(value)
+
+
+def write_json(path: Path, payload: dict[str, Any]) -> None:
+    """Write a JSON report, rejecting non-finite JSON numbers."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    safe_payload = to_json_safe(payload)
+
+    with path.open("w", encoding="utf-8") as file:
+        json.dump(
+            safe_payload,
+            file,
+            indent=2,
+            allow_nan=False,
+        )
+        file.write("\n")
+
+
+def write_search_outputs(
+    output_dir: Path,
+    trials: list[dict[str, Any]],
+    started_at: str,
+    completed: bool,
+) -> None:
+    """Persist aggregate CSV and JSON after each trial."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    csv_path = output_dir / "search_summary.csv"
+    json_path = output_dir / "grid_search_report.json"
+
+    dataframe = pd.DataFrame(trials)
+    dataframe.to_csv(csv_path, index=False)
+
+    successful_trials = [
+        trial
+        for trial in trials
+        if trial.get("status") == "SUCCESS"
+        and is_finite_number(trial.get("best_selection_score"))
+    ]
+
+    ranked_trials = sorted(
+        successful_trials,
+        key=lambda trial: float(trial["best_selection_score"]),
+        reverse=True,
+    )
+
+    best_by_schedule: dict[str, dict[str, Any] | None] = {}
+
+    for schedule in SEARCH_SPACE["lr_schedule"]:
+        schedule_trials = [
+            trial
+            for trial in ranked_trials
+            if trial.get("lr_schedule") == schedule
+        ]
+        best_by_schedule[schedule] = (
+            schedule_trials[0] if schedule_trials else None
+        )
+
+    report = {
+        "experiment": "Causal one-pass JEPA hyperparameter search",
+        "started_at": started_at,
+        "updated_at": datetime.now().astimezone().isoformat(),
+        "completed": completed,
+        "total_trials_planned": math.prod(
+            len(values) for values in SEARCH_SPACE.values()
+        ),
+        "trials_recorded": len(trials),
+        "successful_trials": sum(
+            trial.get("status") == "SUCCESS" for trial in trials
+        ),
+        "failed_trials": sum(
+            trial.get("status") == "FAILED" for trial in trials
+        ),
+        "selection_metric": "best_selection_score",
+        "search_space": SEARCH_SPACE,
+        "best_trial_overall": ranked_trials[0] if ranked_trials else None,
+        "best_trial_by_schedule": best_by_schedule,
+        "trials": trials,
     }
 
-    # Generate all combinations (Cartesian product)
-    keys = list(search_space.keys())
-    values = list(search_space.values())
-    combinations = [dict(zip(keys, combination)) for combination in itertools.product(*values)]
+    write_json(json_path, report)
 
-    logger.info("Starting hyperparameter grid search over %d configurations (No checkpoints will be saved).", len(combinations))
+    LOGGER.info("Updated master CSV: %s", csv_path)
+    LOGGER.info("Updated master JSON: %s", json_path)
 
-    search_results_dir = Path("results/jepa_grid_search")
+
+def build_trial_name(
+    schedule: str,
+    learning_rate: float,
+    weight_decay: float,
+    warmup_epochs: int,
+) -> str:
+    """Build a readable and filesystem-safe trial name."""
+    lr_label = f"{learning_rate:.4f}"
+    wd_label = f"{weight_decay:.2f}"
+
+    return (
+        f"jepa_causal_{schedule}"
+        f"_lr{lr_label}"
+        f"_wd{wd_label}"
+        f"_warm{warmup_epochs}"
+    )
+
+
+def load_config(config_path: Path) -> dict[str, Any]:
+    """Load a YAML configuration into a dictionary."""
+    with config_path.open("r", encoding="utf-8") as file:
+        config = yaml.safe_load(file)
+
+    if not isinstance(config, dict):
+        raise ValueError(
+            f"Expected a YAML dictionary in configuration: {config_path}"
+        )
+
+    config.setdefault("training", {})
+    config.setdefault("output", {})
+
+    return config
+
+
+def make_trial_config(
+    base_config: dict[str, Any],
+    experiment_name: str,
+    results_dir: Path,
+    schedule: str,
+    learning_rate: float,
+    weight_decay: float,
+    warmup_epochs: int,
+) -> dict[str, Any]:
+    """Copy the base config and apply one trial's parameters."""
+    config = copy.deepcopy(base_config)
+
+    config.setdefault("training", {})
+    config.setdefault("output", {})
+
+    config["training"]["lr_schedule"] = schedule
+    config["training"]["learning_rate"] = learning_rate
+    config["training"]["weight_decay"] = weight_decay
+    config["training"]["warmup_epochs"] = warmup_epochs
+
+    # No model checkpoints should be written during hyperparameter search.
+    config["training"]["save_checkpoint"] = False
+
+    # Each trial writes all its outputs into its own search subdirectory.
+    config["output"]["results_dir"] = str(results_dir)
+
+    # Keep checkpoint paths unset when checkpoint saving is disabled.
+    config["output"]["checkpoint_dir"] = None
+    config["output"]["best_checkpoint_name"] = None
+
+    # Preserve the trial name in the config if the trainer uses it.
+    config["experiment_name"] = experiment_name
+
+    return config
+
+
+def extract_best_metrics(
+    summary: Any,
+) -> tuple[dict[str, Any], Any]:
+    """
+    Extract metrics from the trainer's returned summary.
+
+    Expected trainer output includes best_metrics and best_selection_score.
+    The alternate lookups make this helper tolerant of common summary shapes.
+    """
+    if not isinstance(summary, dict):
+        raise TypeError(
+            "train(config) must return a dictionary summary; "
+            f"received {type(summary).__name__}"
+        )
+
+    metrics = summary.get("best_metrics", {})
+    if not isinstance(metrics, dict):
+        metrics = {}
+
+    selection_score = summary.get("best_selection_score")
+
+    if selection_score is None:
+        selection_score = summary.get("best_score")
+
+    if selection_score is None:
+        selection_score = metrics.get("ndcg@10")
+
+    if selection_score is None:
+        selection_score = metrics.get("ndcg10")
+
+    return metrics, selection_score
+
+
+# ---------------------------------------------------------------------
+# Main search
+# ---------------------------------------------------------------------
+
+def run_search(config_path: Path) -> int:
+    config_path = config_path.expanduser().resolve()
+
+    if not config_path.is_file():
+        raise FileNotFoundError(
+            f"Configuration file not found: {config_path}"
+        )
+
+    base_config = load_config(config_path)
+
+    # All master files and trial subdirectories live here.
+    search_results_dir = PROJECT_ROOT / "results" / "jepa_grid_search"
     search_results_dir.mkdir(parents=True, exist_ok=True)
 
-    all_trials = []
-    
-    # Track the best trial per schedule to easily show you the winners at the end
-    best_by_schedule = {
-        "constant": {"score": float("-inf"), "trial_record": None},
-        "cosine": {"score": float("-inf"), "trial_record": None},
-    }
-    
-    overall_best_score = float("-inf")
-    overall_best_trial = {}
+    csv_path = search_results_dir / "search_summary.csv"
+    json_path = search_results_dir / "grid_search_report.json"
 
-    search_start_time = datetime.now()
-
-    for idx, params in enumerate(combinations, start=1):
-        logger.info("=" * 80)
-        logger.info("Running Trial %d/%d with parameters: %s", idx, len(combinations), params)
-        logger.info("=" * 80)
-
-        config = copy.deepcopy(base_config)
-
-        # Apply hyperparameters
-        config["training"]["lr_schedule"] = params["lr_schedule"]
-        config["training"]["learning_rate"] = params["learning_rate"]
-        config["training"]["weight_decay"] = params["weight_decay"]
-        config["training"]["warmup_epochs"] = params["warmup_epochs"]
-
-        # Construct unique names for temporary outputs
-        exp_name = (
-            f"jepa_causal_{params['lr_schedule']}_"
-            f"lr{params['learning_rate']}_"
-            f"wd{params['weight_decay']}_"
-            f"warm{params['warmup_epochs']}"
+    combinations = list(
+        itertools.product(
+            SEARCH_SPACE["lr_schedule"],
+            SEARCH_SPACE["learning_rate"],
+            SEARCH_SPACE["weight_decay"],
+            SEARCH_SPACE["warmup_epochs"],
         )
-        config["output"]["experiment_name"] = exp_name
-        
-        checkpoint_dir = Path(f"checkpoints/{exp_name}")
-        config["output"]["checkpoint_dir"] = str(checkpoint_dir)
-        config["output"]["results_dir"] = f"results/{exp_name}"
-        config["output"]["best_checkpoint_name"] = f"{exp_name}_best.pt"
+    )
+
+    started_at = datetime.now().astimezone().isoformat()
+    all_trials: list[dict[str, Any]] = []
+
+    LOGGER.info("Project root: %s", PROJECT_ROOT)
+    LOGGER.info("Base configuration: %s", config_path)
+    LOGGER.info("Search output directory: %s", search_results_dir)
+    LOGGER.info("Total trials: %d", len(combinations))
+    LOGGER.info("Checkpoint saving: disabled for every trial")
+
+    # Initialize the aggregate files before the first trial.
+    write_search_outputs(
+        output_dir=search_results_dir,
+        trials=all_trials,
+        started_at=started_at,
+        completed=False,
+    )
+
+    for trial_number, parameters in enumerate(combinations, start=1):
+        (
+            schedule,
+            learning_rate,
+            weight_decay,
+            warmup_epochs,
+        ) = parameters
+
+        experiment_name = build_trial_name(
+            schedule=schedule,
+            learning_rate=learning_rate,
+            weight_decay=weight_decay,
+            warmup_epochs=warmup_epochs,
+        )
+
+        # Crucially, the trial directory is nested under the master directory.
+        trial_results_dir = search_results_dir / experiment_name
+        trial_results_dir.mkdir(parents=True, exist_ok=True)
+
+        LOGGER.info("=" * 80)
+        LOGGER.info("Trial %d/%d: %s", trial_number, len(combinations), experiment_name)
+        LOGGER.info(
+            "Parameters: schedule=%s, lr=%g, weight_decay=%g, warmup=%d",
+            schedule,
+            learning_rate,
+            weight_decay,
+            warmup_epochs,
+        )
+        LOGGER.info("Trial output: %s", trial_results_dir)
+
+        trial_record: dict[str, Any] = {
+            "trial_number": trial_number,
+            "experiment_name": experiment_name,
+            "trial_results_dir": str(trial_results_dir),
+            "lr_schedule": schedule,
+            "learning_rate": learning_rate,
+            "weight_decay": weight_decay,
+            "warmup_epochs": warmup_epochs,
+            "save_checkpoint": False,
+            "status": "RUNNING",
+            "best_selection_score": None,
+            "best_metrics": {},
+            "error": None,
+        }
+
+        # Record the running trial so earlier results remain available.
+        all_trials.append(trial_record)
+        write_search_outputs(
+            output_dir=search_results_dir,
+            trials=all_trials,
+            started_at=started_at,
+            completed=False,
+        )
 
         try:
-            # Execute training run
-            summary = train(config)
+            trial_config = make_trial_config(
+                base_config=base_config,
+                experiment_name=experiment_name,
+                results_dir=trial_results_dir,
+                schedule=schedule,
+                learning_rate=learning_rate,
+                weight_decay=weight_decay,
+                warmup_epochs=warmup_epochs,
+            )
 
-            best_sel_score = summary.get("best_selection_score", 0.0)
-            best_metrics = summary.get("best_metrics", {})
-            best_epoch = summary.get("best_epoch", 0)
-            schedule = params["lr_schedule"]
+            # Save the exact configuration used for this trial.
+            config_output_path = trial_results_dir / "config.yaml"
+            with config_output_path.open("w", encoding="utf-8") as file:
+                yaml.safe_dump(
+                    trial_config,
+                    file,
+                    sort_keys=False,
+                )
 
-            trial_record = {
-                "trial_id": idx,
-                "experiment_name": exp_name,
-                "lr_schedule": schedule,
-                "learning_rate": params["learning_rate"],
-                "weight_decay": params["weight_decay"],
-                "warmup_epochs": params["warmup_epochs"],
-                "best_epoch": best_epoch,
-                "selection_score": best_sel_score,
-                "ndcg_10": best_metrics.get("NDCG@10", 0.0),
-                "hr_10": best_metrics.get("HR@10", 0.0),
-                "ndcg_5": best_metrics.get("NDCG@5", 0.0),
-                "hr_5": best_metrics.get("HR@5", 0.0),
-                "status": "SUCCESS",
-            }
+            summary = train(trial_config)
+            best_metrics, selection_score = extract_best_metrics(summary)
 
-            # Update schedule-specific best tracker
-            if best_sel_score > best_by_schedule[schedule]["score"]:
-                best_by_schedule[schedule]["score"] = best_sel_score
-                best_by_schedule[schedule]["trial_record"] = trial_record.copy()
-                logger.info(">>> New best %s model found! Selection Score: %.4f", schedule, best_sel_score)
+            trial_record["best_metrics"] = to_json_safe(best_metrics)
+            trial_record["best_selection_score"] = (
+                float(selection_score)
+                if is_finite_number(selection_score)
+                else None
+            )
+            trial_record["status"] = "SUCCESS"
 
-            # Update overall best tracker
-            if best_sel_score > overall_best_score:
-                overall_best_score = best_sel_score
-                overall_best_trial = trial_record.copy()
+            # Retain additional trainer summary information when available.
+            trial_record["run_summary"] = to_json_safe(summary)
 
-        except Exception as e:
-            logger.exception("Trial %d failed with error: %s", idx, e)
-            trial_record = {
-                "trial_id": idx,
-                "experiment_name": exp_name,
-                "lr_schedule": params["lr_schedule"],
-                "learning_rate": params["learning_rate"],
-                "weight_decay": params["weight_decay"],
-                "warmup_epochs": params["warmup_epochs"],
-                "best_epoch": None,
-                "selection_score": 0.0,
-                "ndcg_10": 0.0,
-                "hr_10": 0.0,
-                "ndcg_5": 0.0,
-                "hr_5": 0.0,
-                "status": f"FAILED: {str(e)}",
-            }
+            LOGGER.info(
+                "Trial completed: %s; selection score=%s",
+                experiment_name,
+                trial_record["best_selection_score"],
+            )
+
+        except Exception as exc:
+            LOGGER.exception("Trial failed: %s", experiment_name)
+
+            trial_record["status"] = "FAILED"
+            trial_record["error"] = f"{type(exc).__name__}: {exc}"
 
         finally:
-            # Clean up checkpoints immediately after the trial completes (whether pass or fail)
-            if checkpoint_dir.exists():
-                shutil.rmtree(checkpoint_dir, ignore_errors=True)
+            # Update the master files even if the current trial failed.
+            write_search_outputs(
+                output_dir=search_results_dir,
+                trials=all_trials,
+                started_at=started_at,
+                completed=False,
+            )
 
-        all_trials.append(trial_record)
+    # Final report marks the full search as complete.
+    write_search_outputs(
+        output_dir=search_results_dir,
+        trials=all_trials,
+        started_at=started_at,
+        completed=True,
+    )
 
-        # Incrementally update the master CSV table log after each trial
-        df_trials = pd.DataFrame(all_trials)
-        df_trials.to_csv(search_results_dir / "search_summary.csv", index=False)
+    successful_trials = [
+        trial
+        for trial in all_trials
+        if trial.get("status") == "SUCCESS"
+        and is_finite_number(trial.get("best_selection_score"))
+    ]
+    successful_trials.sort(
+        key=lambda trial: float(trial["best_selection_score"]),
+        reverse=True,
+    )
 
-    # Save final JSON report containing best parameters per schedule and overall
-    search_summary = {
-        "search_start": search_start_time.isoformat(),
-        "search_end": datetime.now().isoformat(),
-        "total_trials": len(combinations),
-        "overall_best_trial": overall_best_trial,
-        "best_by_schedule": {
-            sched: data["trial_record"] for sched, data in best_by_schedule.items()
-        },
-        "all_trials": all_trials,
-    }
+    LOGGER.info("=" * 80)
+    LOGGER.info("Grid search finished.")
+    LOGGER.info("Successful trials: %d", len(successful_trials))
+    LOGGER.info("Failed trials: %d", sum(
+        trial.get("status") == "FAILED" for trial in all_trials
+    ))
+    LOGGER.info("Master CSV: %s", csv_path)
+    LOGGER.info("Master JSON: %s", json_path)
 
-    with open(search_results_dir / "grid_search_report.json", "w") as f:
-        json.dump(search_summary, f, indent=4)
+    if successful_trials:
+        best = successful_trials[0]
+        LOGGER.info("Best trial: %s", best["experiment_name"])
+        LOGGER.info(
+            "Best selection score: %s",
+            best["best_selection_score"],
+        )
+    else:
+        LOGGER.warning(
+            "No successful trial produced a finite selection score."
+        )
 
-    logger.info("=" * 80)
-    logger.info("GRID SEARCH COMPLETE (Zero checkpoints stored)")
-    logger.info("Overall Best Experiment: %s", overall_best_trial.get("experiment_name"))
-    logger.info("Overall Best Validation NDCG@10: %.4f", overall_best_trial.get("ndcg_10", 0.0))
-    logger.info("-" * 40)
-    logger.info("Best Parameters by Schedule:")
-    for sched, data in best_by_schedule.items():
-        if data["trial_record"]:
-            rec = data["trial_record"]
-            logger.info("  * [%s Schedule] LR: %s | WD: %s | Warmup: %s | NDCG@10: %.4f",
-                        sched, rec["learning_rate"], rec["weight_decay"], rec["warmup_epochs"], rec["ndcg_10"])
-    logger.info("-" * 40)
-    logger.info("Master table log saved to: %s", search_results_dir / "search_summary.csv")
-    logger.info("Detailed JSON report saved to: %s", search_results_dir / "grid_search_report.json")
-    logger.info("=" * 80)
+    return 0 if successful_trials else 1
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run a hyperparameter grid search for causal JEPA."
+    )
+
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("configs/jepa_tuned.yaml"),
+        help="Base YAML configuration file.",
+    )
+
+    return parser.parse_args()
+
+
+def main() -> int:
+    configure_logging()
+    args = parse_args()
+    return run_search(args.config)
 
 
 if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Run causal JEPA hyperparameter grid search without saving checkpoints.")
-    parser.add_argument(
-        "--config",
-        type=str,
-        required=True,
-        help="Path to base YAML configuration file.",
-    )
-    args = parser.parse_args()
-
-    run_grid_search(args.config)
+    raise SystemExit(main())
