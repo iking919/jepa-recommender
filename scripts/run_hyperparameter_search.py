@@ -1,9 +1,9 @@
 """
-Comprehensive Hyperparameter Grid Search for Causal JEPA
+Hyperparameter Grid Search for Causal JEPA (No Checkpoints Saved)
 - Searches across constant and cosine schedules, learning rates, weight decays, and warmups.
-- Saves disk space by deleting intermediate checkpoints, keeping only the best 
-  checkpoint for 'constant' and the best checkpoint for 'cosine'.
-- Maintains a clean master CSV table of all trial performances.
+- Completely deletes checkpoint files after each run to save disk space.
+- Maintains a master CSV table of all trial performances and saves a final report 
+  detailing the best parameters for constant and cosine schedules.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ import copy
 import itertools
 import json
 import logging
+import shutil
 from datetime import datetime
 
 import pandas as pd
@@ -49,17 +50,17 @@ def run_grid_search(base_config_path: str) -> None:
     values = list(search_space.values())
     combinations = [dict(zip(keys, combination)) for combination in itertools.product(*values)]
 
-    logger.info("Starting hyperparameter grid search over %d configurations.", len(combinations))
+    logger.info("Starting hyperparameter grid search over %d configurations (No checkpoints will be saved).", len(combinations))
 
     search_results_dir = Path("results/jepa_grid_search")
     search_results_dir.mkdir(parents=True, exist_ok=True)
 
     all_trials = []
     
-    # Track the best trial per schedule to know which checkpoints to keep
+    # Track the best trial per schedule to easily show you the winners at the end
     best_by_schedule = {
-        "constant": {"score": float("-inf"), "trial_record": None, "exp_name": None},
-        "cosine": {"score": float("-inf"), "trial_record": None, "exp_name": None},
+        "constant": {"score": float("-inf"), "trial_record": None},
+        "cosine": {"score": float("-inf"), "trial_record": None},
     }
     
     overall_best_score = float("-inf")
@@ -80,7 +81,7 @@ def run_grid_search(base_config_path: str) -> None:
         config["training"]["weight_decay"] = params["weight_decay"]
         config["training"]["warmup_epochs"] = params["warmup_epochs"]
 
-        # Construct a unique experiment name
+        # Construct unique names for temporary outputs
         exp_name = (
             f"jepa_causal_{params['lr_schedule']}_"
             f"lr{params['learning_rate']}_"
@@ -88,11 +89,11 @@ def run_grid_search(base_config_path: str) -> None:
             f"warm{params['warmup_epochs']}"
         )
         config["output"]["experiment_name"] = exp_name
-        config["output"]["checkpoint_dir"] = f"checkpoints/{exp_name}"
+        
+        checkpoint_dir = Path(f"checkpoints/{exp_name}")
+        config["output"]["checkpoint_dir"] = str(checkpoint_dir)
         config["output"]["results_dir"] = f"results/{exp_name}"
         config["output"]["best_checkpoint_name"] = f"{exp_name}_best.pt"
-
-        checkpoint_path = Path(config["output"]["checkpoint_dir"]) / config["output"]["best_checkpoint_name"]
 
         try:
             # Execute training run
@@ -119,27 +120,13 @@ def run_grid_search(base_config_path: str) -> None:
                 "status": "SUCCESS",
             }
 
-            # Update schedule-specific best
+            # Update schedule-specific best tracker
             if best_sel_score > best_by_schedule[schedule]["score"]:
-                # If there was a previous best for this schedule, clean up its checkpoint file to save space
-                prev_exp = best_by_schedule[schedule]["exp_name"]
-                if prev_exp:
-                    prev_ckpt = Path(f"checkpoints/{prev_exp}/{prev_exp}_best.pt")
-                    if prev_ckpt.exists():
-                        prev_ckpt.unlink()
-                        logger.info("Removed non-optimal checkpoint: %s", prev_ckpt)
-
                 best_by_schedule[schedule]["score"] = best_sel_score
                 best_by_schedule[schedule]["trial_record"] = trial_record.copy()
-                best_by_schedule[schedule]["exp_name"] = exp_name
                 logger.info(">>> New best %s model found! Selection Score: %.4f", schedule, best_sel_score)
-            else:
-                # Not the best for this schedule; remove its checkpoint immediately to save space
-                if checkpoint_path.exists():
-                    checkpoint_path.unlink()
-                    logger.info("Removed intermediate checkpoint to save space: %s", checkpoint_path)
 
-            # Update overall best
+            # Update overall best tracker
             if best_sel_score > overall_best_score:
                 overall_best_score = best_sel_score
                 overall_best_trial = trial_record.copy()
@@ -161,17 +148,19 @@ def run_grid_search(base_config_path: str) -> None:
                 "hr_5": 0.0,
                 "status": f"FAILED: {str(e)}",
             }
-            # Remove checkpoint if it exists from partial failure
-            if checkpoint_path.exists():
-                checkpoint_path.unlink()
+
+        finally:
+            # Clean up checkpoints immediately after the trial completes (whether pass or fail)
+            if checkpoint_dir.exists():
+                shutil.rmtree(checkpoint_dir, ignore_errors=True)
 
         all_trials.append(trial_record)
 
-        # Incrementally update the master CSV table after each trial
+        # Incrementally update the master CSV table log after each trial
         df_trials = pd.DataFrame(all_trials)
         df_trials.to_csv(search_results_dir / "search_summary.csv", index=False)
 
-    # Save final JSON summary report containing best models per schedule and overall
+    # Save final JSON report containing best parameters per schedule and overall
     search_summary = {
         "search_start": search_start_time.isoformat(),
         "search_end": datetime.now().isoformat(),
@@ -187,21 +176,26 @@ def run_grid_search(base_config_path: str) -> None:
         json.dump(search_summary, f, indent=4)
 
     logger.info("=" * 80)
-    logger.info("GRID SEARCH COMPLETE")
+    logger.info("GRID SEARCH COMPLETE (Zero checkpoints stored)")
     logger.info("Overall Best Experiment: %s", overall_best_trial.get("experiment_name"))
     logger.info("Overall Best Validation NDCG@10: %.4f", overall_best_trial.get("ndcg_10", 0.0))
-    logger.info("Saved Checkpoints Retained Only For Best Models:")
+    logger.info("-" * 40)
+    logger.info("Best Parameters by Schedule:")
     for sched, data in best_by_schedule.items():
-        if data["exp_name"]:
-            logger.info("  - %s schedule best: checkpoints/%s/%s_best.pt", sched, data["exp_name"], data["exp_name"])
+        if data["trial_record"]:
+            rec = data["trial_record"]
+            logger.info("  * [%s Schedule] LR: %s | WD: %s | Warmup: %s | NDCG@10: %.4f",
+                        sched, rec["learning_rate"], rec["weight_decay"], rec["warmup_epochs"], rec["ndcg_10"])
+    logger.info("-" * 40)
     logger.info("Master table log saved to: %s", search_results_dir / "search_summary.csv")
+    logger.info("Detailed JSON report saved to: %s", search_results_dir / "grid_search_report.json")
     logger.info("=" * 80)
 
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Run causal JEPA hyperparameter grid search with optimized storage.")
+    parser = argparse.ArgumentParser(description="Run causal JEPA hyperparameter grid search without saving checkpoints.")
     parser.add_argument(
         "--config",
         type=str,
