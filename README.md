@@ -11,7 +11,9 @@ The project compares two approaches:
 - **BERT4Rec:** A bidirectional Transformer-based sequential recommendation model trained using a masked item prediction objective.
 - **JEPA:** A Joint-Embedding Predictive Architecture that learns to predict target representations from encoded user interaction contexts.
 
-Both approaches are evaluated on MovieLens-1M using a chronological recommendation task and ranking-based evaluation metrics.
+The repository also investigates a causal, one-pass JEPA training approach designed to reduce redundant computation across user interaction sequences.
+
+The models are evaluated on MovieLens-1M using chronological recommendation tasks and ranking-based evaluation metrics.
 
 ### Research Objectives
 
@@ -19,15 +21,17 @@ The primary objectives are to:
 
 1. Implement a modular JEPA-based sequential recommendation model.
 2. Establish BERT4Rec as a sequential recommendation baseline.
-3. Compare the recommendation performance of both approaches under a shared dataset and evaluation protocol.
+3. Compare recommendation performance under a shared dataset and evaluation protocol.
 4. Examine the impact of model architecture and training configuration on recommendation performance.
-5. Record training time, validation performance, and resource usage to support analysis of computational efficiency.
+5. Investigate the effect of causal, one-pass training on JEPA training efficiency.
+6. Use hyperparameter search to identify promising optimization settings.
+7. Record training time, validation performance, and resource usage to support analysis of computational efficiency.
 
 ## Models
 
 ### BERT4Rec
 
-BERT4Rec is used as the sequential recommendation baseline. It applies a bidirectional Transformer to user interaction sequences and learns through masked item prediction.
+BERT4Rec is used as a sequential recommendation baseline. It applies a bidirectional Transformer to user interaction sequences and learns through masked item prediction.
 
 The model is trained to predict masked items from surrounding interaction context. During evaluation, it produces item-ranking scores for the held-out target item.
 
@@ -47,12 +51,27 @@ The architecture consists of:
 - **Predictor:** Predicts target representations from context representations.
 - **Exponential moving average (EMA):** Updates the target encoder using the context encoder's parameters.
 
-The target encoder is used during training to provide target representations. Recommendation at inference time uses the context representation and prediction to rank candidate item embeddings.
+The target encoder provides target representations during training. At inference time, the model uses learned representations to rank candidate items.
 
-The repository includes baseline and tuned configurations:
+The standard JEPA implementation includes baseline and tuned configurations:
 
 - `jepa_baseline.yaml`
 - `jepa_tuned.yaml`
+
+### Causal JEPA
+
+The causal JEPA implementation uses a causal Transformer encoder and a one-pass training strategy. Rather than repeatedly encoding a separate prefix for each prediction target, the training pipeline processes user interaction sequences through a smaller number of windows and derives multiple supervised targets from those windows.
+
+This approach is intended to reduce redundant forward passes and training time while retaining a sequential prediction objective.
+
+The repository includes the following configurations:
+
+- `jepa_causal_baseline.yaml`
+- `jepa_causal_tuned.yaml`
+
+The causal baseline uses starting optimization settings before hyperparameter tuning. The tuned configuration uses the selected optimization settings from the search process.
+
+The causal implementation is evaluated separately from the standard JEPA implementation because the training strategies and model configurations differ. Comparisons should document these differences when interpreting performance and computational efficiency.
 
 ## Dataset
 
@@ -91,7 +110,7 @@ The current processed dataset contains:
 | Maximum sequence length | 200 |
 | Training interactions | 648,759 |
 
-Special token IDs are defined as:
+Special token IDs are defined as follows:
 
 | Token | ID |
 |---|---:|
@@ -112,27 +131,30 @@ The models are evaluated on held-out test interactions using the following ranki
 
 The evaluation pipeline ranks candidate movies and excludes items the user has already interacted with, where configured.
 
-Final test metrics should be reported separately from validation metrics. Validation performance is used for model selection, while the held-out test set is used for final evaluation.
+Validation performance is used for model selection, including hyperparameter selection and checkpoint selection. The held-out test set is reserved for final evaluation.
+
+For fair comparisons, use consistent data splits, candidate-item handling, ranking metrics, and evaluation settings. Document differences between the standard and causal JEPA implementations where relevant.
 
 ## Repository Structure
 
 ```text
 jepa-recommender/
-├── configs/                 # Experiment configurations
+├── configs/                       # Experiment configurations
 ├── data/
-│   ├── raw/                  # Original dataset
-│   ├── interim/              # Intermediate preprocessing artifacts
-│   └── processed/            # Model-ready datasets
-├── checkpoints/              # Trained model weights
-├── results/                  # Metrics, training history, and summaries
-├── notebooks/                # Exploratory analysis and experiments
-├── scripts/                  # Dataset and evaluation entry points
+│   ├── raw/                       # Original dataset
+│   ├── interim/                   # Intermediate preprocessing artifacts
+│   └── processed/                 # Model-ready datasets
+├── checkpoints/                   # Trained model weights
+├── results/                       # Metrics, histories, and summaries
+│   └── jepa_grid_search/          # Causal JEPA hyperparameter-search results
+├── notebooks/                     # Exploratory analysis and experiments
+├── scripts/                       # Dataset, search, and evaluation entry points
 └── src/
-    ├── data/                 # Dataset loading and preprocessing
-    ├── models/               # BERT4Rec and JEPA architectures
-    ├── training/             # Training loops and EMA
-    ├── evaluation/           # Metrics and evaluation logic
-    └── utils/                # Configuration, logging, and utilities
+    ├── data/                      # Dataset loading and preprocessing
+    ├── models/                    # BERT4Rec and JEPA architectures
+    ├── training/                  # Training loops and EMA
+    ├── evaluation/                # Metrics and evaluation logic
+    └── utils/                     # Configuration, logging, and utilities
 ```
 
 ## Installation
@@ -168,7 +190,9 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-**PyTorch and CUDA:** The appropriate PyTorch build depends on your operating system, GPU, and CUDA support. If you intend to train on an NVIDIA GPU, follow the official PyTorch installation instructions to install a compatible CUDA-enabled build. Verify availability with:
+**PyTorch and CUDA:** The appropriate PyTorch build depends on your operating system, GPU, and CUDA support. If you intend to train on an NVIDIA GPU, follow the official PyTorch installation instructions to install a compatible CUDA-enabled build.
+
+Verify the installation:
 
 ```bash
 python -c "import torch; print(torch.__version__); print(torch.cuda.is_available())"
@@ -194,7 +218,7 @@ data/raw/ml-1m/
 
 Do not modify the original dataset files.
 
-Run the preprocessing entry point available in the repository to generate the intermediate and processed datasets. If the repository includes `scripts/download_ml1m.py` and `scripts/preprocess_ml1m.py`, the commands are:
+Run the preprocessing entry points available in the repository to generate the intermediate and processed datasets. If the repository includes `scripts/download_ml1m.py` and `scripts/preprocess_ml1m.py`, the commands are:
 
 ```bash
 python scripts/download_ml1m.py
@@ -205,134 +229,198 @@ Refer to `data/README.md` and the available scripts for the exact data preparati
 
 ## Experiment Configurations
 
-Experiment parameters are stored in YAML files under `configs/`:
+Experiment parameters are stored in YAML files under `configs/`.
 
 | Configuration | Description |
 |---|---|
 | `bert4rec_baseline.yaml` | Baseline BERT4Rec experiment |
 | `bert4rec_tuned.yaml` | Tuned BERT4Rec experiment |
-| `jepa_baseline.yaml` | Baseline JEPA experiment |
-| `jepa_tuned.yaml` | Tuned JEPA experiment |
+| `jepa_baseline.yaml` | Baseline standard JEPA experiment |
+| `jepa_tuned.yaml` | Tuned standard JEPA experiment |
+| `jepa_causal_baseline.yaml` | Baseline causal, one-pass JEPA experiment |
+| `jepa_causal_tuned.yaml` | Tuned causal, one-pass JEPA experiment |
 
-Each configuration specifies the relevant dataset paths, model architecture, training parameters, and output locations.
+Each configuration specifies dataset paths, model architecture, training parameters, and output locations.
+
+The causal JEPA configurations use the causal training implementation and should be treated as separate experiments from the standard JEPA configurations.
 
 ## Training
 
-Run commands from the repository root.
+Run commands from the repository root. Ensure the required processed datasets are available before starting training.
 
 ### BERT4Rec Baseline
 
 ```bash
-python -m src.training.train_bert4rec --config configs/bert4rec_baseline.yaml
+python -m src.training.train_bert4rec \
+  --config configs/bert4rec_baseline.yaml
 ```
 
 ### BERT4Rec Tuned
 
 ```bash
-python -m src.training.train_bert4rec --config configs/bert4rec_tuned.yaml
+python -m src.training.train_bert4rec \
+  --config configs/bert4rec_tuned.yaml
 ```
 
-### JEPA Baseline
+### Standard JEPA Baseline
 
 ```bash
-python -m src.training.train_jepa --config configs/jepa_baseline.yaml
+python -m src.training.train_jepa \
+  --config configs/jepa_baseline.yaml
 ```
 
-### JEPA Tuned
+### Standard JEPA Tuned
 
 ```bash
-python -m src.training.train_jepa --config configs/jepa_tuned.yaml
+python -m src.training.train_jepa \
+  --config configs/jepa_tuned.yaml
 ```
 
-### JEPA Causal (Constant Evaluation)
+### Causal JEPA Baseline
 
 ```bash
-python -m src.training.train_jepa_causal --config configs/jepa_causal_const.yaml
+python -m src.training.train_jepa_causal \
+  --config configs/jepa_causal_baseline.yaml
 ```
 
-### JEPA Causal (Cosine Evaluation)
+### Causal JEPA Tuned
 
 ```bash
-python -m src.training.train_jepa_causal --config configs/jepa_causal_cos.yaml
+python -m src.training.train_jepa_causal \
+  --config configs/jepa_causal_tuned.yaml
 ```
 
-Training saves model checkpoints under `checkpoints/` and experiment outputs under the corresponding `results/` directory, as specified by the training pipeline.
+Training saves model checkpoints under `checkpoints/` and experiment outputs under the corresponding `results/` directory, as specified by the configuration and training pipeline.
+
+## Hyperparameter Search
+
+Hyperparameter search is used to investigate optimization settings for the causal, one-pass JEPA implementation. The search evaluates the parameter combinations defined in `scripts/run_hyperparameter_search.py`, including both constant and cosine learning-rate schedules.
+
+The search is launched using the causal baseline configuration:
+
+```bash
+python scripts/run_hyperparameter_search.py \
+  --config configs/jepa_causal_baseline.yaml
+```
+
+The baseline configuration provides the starting architecture and training setup. The search script generates trial-specific configurations, applies the candidate optimization settings, and records the resulting validation performance.
+
+### Search Outputs
+
+Search outputs are organized separately from ordinary training results:
+
+```text
+results/
+└── jepa_grid_search/
+    ├── search_summary.csv
+    ├── grid_search_report.json
+    ├── <trial_name_1>/
+    │   ├── config.yaml
+    │   ├── training_history.csv
+    │   └── run_summary.json
+    └── <trial_name_2>/
+        ├── config.yaml
+        ├── training_history.csv
+        └── run_summary.json
+```
+
+The exact number and names of trials depend on the parameter grid defined in the search script.
+
+- `search_summary.csv` contains the aggregate results for individual trials.
+- `grid_search_report.json` contains the machine-readable search report.
+- Each trial directory records the configuration used, training history, and run summary.
+
+The search is intended to avoid saving a model checkpoint for every trial, while preserving the information needed to compare configurations. Verify that checkpoint saving is disabled in the search script and that the trainer honors that setting.
+
+### Selecting the Tuned Configuration
+
+Use validation performance, such as validation NDCG@10, to compare candidate configurations and select the optimization settings for the tuned causal JEPA experiment.
+
+The selected settings should then be recorded in `configs/jepa_causal_tuned.yaml`. Keep the baseline configuration unchanged so the original settings remain available for comparison.
+
+For reproducibility, retain the aggregate search results and the configuration for each trial. Report the final held-out test metrics only after selecting the configuration using validation data.
 
 ## Evaluation
 
-Evaluation uses a trained checkpoint and the corresponding experiment configuration.
+Evaluation uses a trained checkpoint and the corresponding experiment configuration. Run the commands from the repository root so that project imports and relative paths resolve correctly.
 
 ### BERT4Rec Baseline
 
 ```bash
 python -m scripts.run_bert4rec_evaluation \
-    --config configs/bert4rec_baseline.yaml \
-    --checkpoint checkpoints/bert4rec_baseline/bert4rec_baseline_best.pt
+  --config configs/bert4rec_baseline.yaml \
+  --checkpoint checkpoints/bert4rec_baseline/bert4rec_baseline_best.pt
 ```
 
 ### BERT4Rec Tuned
 
 ```bash
 python -m scripts.run_bert4rec_evaluation \
-    --config configs/bert4rec_tuned.yaml \
-    --checkpoint checkpoints/bert4rec_tuned/bert4rec_tuned_best.pt
+  --config configs/bert4rec_tuned.yaml \
+  --checkpoint checkpoints/bert4rec_tuned/bert4rec_tuned_best.pt
 ```
 
-### JEPA Baseline
+### Standard JEPA Baseline
 
 ```bash
 python -m scripts.run_jepa_evaluation \
-    --config configs/jepa_baseline.yaml \
-    --checkpoint checkpoints/jepa_baseline/jepa_baseline_best.pt
+  --config configs/jepa_baseline.yaml \
+  --checkpoint checkpoints/jepa_baseline/jepa_baseline_best.pt
 ```
 
-### JEPA Tuned
+### Standard JEPA Tuned
 
 ```bash
 python -m scripts.run_jepa_evaluation \
-    --config configs/jepa_tuned.yaml \
-    --checkpoint checkpoints/jepa_tuned/jepa_tuned_best.pt
+  --config configs/jepa_tuned.yaml \
+  --checkpoint checkpoints/jepa_tuned/jepa_tuned_best.pt
 ```
 
-### JEPA Causal (Constant Evaluation)
+### Causal JEPA Baseline
 
 ```bash
 python -m scripts.run_jepa_evaluation \
-    --config configs/jepa_causal_const.yaml \
-    --checkpoint checkpoints/jepa_causal_const/jepa_causal_const_best.pt
+  --config configs/jepa_causal_baseline.yaml \
+  --checkpoint checkpoints/jepa_causal_baseline/jepa_causal_baseline_best.pt
 ```
 
-### JEPA Causal (Cosine Evaluation)
+### Causal JEPA Tuned
 
 ```bash
 python -m scripts.run_jepa_evaluation \
-    --config configs/jepa_causal_cos.yaml \
-    --checkpoint checkpoints/jepa_causal_cos/jepa_causal_cos_best.pt
+  --config configs/jepa_causal_tuned.yaml \
+  --checkpoint checkpoints/jepa_causal_tuned/jepa_causal_tuned_best.pt
 ```
 
-These commands assume the corresponding scripts and checkpoints are present. Run the commands from the repository root so the project imports and relative paths resolve correctly.
+**Note:** The causal evaluation commands assume that `scripts.run_jepa_evaluation` supports the causal model architecture and its checkpoint format. If the evaluator does not support causal checkpoints, use or implement the appropriate causal evaluation entry point instead. Confirm the actual checkpoint paths against the output configuration for each run.
 
 ## Results and Experiment Tracking
 
-Each experiment has a dedicated results directory:
+Each experiment has a dedicated results directory. For example:
 
 ```text
 results/
 ├── bert4rec_baseline/
 ├── bert4rec_tuned/
 ├── jepa_baseline/
-└── jepa_tuned/
+├── jepa_tuned/
+├── jepa_causal_baseline/
+├── jepa_causal_tuned/
+└── jepa_grid_search/
 ```
 
 Depending on the experiment pipeline, results may include:
 
+- `config.yaml`: The configuration used for the run.
 - `training_history.csv`: Epoch-level loss, validation metrics, and timing.
 - `run_summary.json`: Configuration and run-level summary.
-- `test_results.json`: Held-out test metrics.
+- `test_results.json`: Held-out test metrics, if produced by the evaluation pipeline.
 
-Training time, validation time, epoch duration, and peak GPU memory are useful for assessing computational cost alongside recommendation metrics.
+The hyperparameter search directory contains aggregate trial results and trial-specific output folders.
 
-Model checkpoints are stored separately under `checkpoints/`. See `results/README.md` and `checkpoints/README.md`.
+Training time, validation time, epoch duration, and peak GPU memory are useful for assessing computational cost alongside recommendation metrics. Preserve the hardware and software environment details when reporting performance.
+
+Model checkpoints are stored separately under `checkpoints/`. See `results/README.md` and `checkpoints/README.md` for additional details.
 
 ## Reproducibility
 
@@ -343,14 +431,16 @@ For reproducible experiments:
 1. Use the same dataset and preprocessing settings.
 2. Use the corresponding YAML configuration for each run.
 3. Record the software and hardware environment.
-4. Preserve training history and evaluation outputs.
-5. Select checkpoints using validation performance and report final results on the held-out test set.
+4. Preserve training histories, trial configurations, search reports, and evaluation outputs.
+5. Select hyperparameters and checkpoints using validation performance.
+6. Report final results on the held-out test set.
+7. Document the search space and selection criterion when reporting tuned results.
 
 Exact results may vary with hardware, software versions, nondeterministic GPU operations, and training conditions.
 
 ## Current Results
 
-The following are the current held-out test results for the four experimental configurations. These results are considered **current experimental results** and may be updated as the project continues.
+The following are the current held-out test results for the standard BERT4Rec and JEPA configurations. These are experimental results and may be updated as the project continues.
 
 | Model | Configuration | HR@5 | HR@10 | NDCG@5 | NDCG@10 |
 |---|---|---:|---:|---:|---:|
@@ -359,13 +449,15 @@ The following are the current held-out test results for the four experimental co
 | JEPA | Baseline | 0.0247 | 0.0328 | 0.0184 | 0.0209 |
 | JEPA | Tuned | 0.1285 | 0.1820 | 0.0917 | 0.1089 |
 
-Results are reported on the held-out test set using the same evaluation metrics across experiments. Model checkpoints are selected using validation performance; the test set is reserved for final evaluation.
+These values apply to the configurations listed above; they should not be interpreted as results for the causal JEPA experiments.
 
-These results are subject to change as the experimental pipeline is further validated and additional analyses are performed.
+Causal JEPA baseline and tuned results should be added after their training and evaluation runs are complete and validated. Report validation metrics used for model selection separately from final held-out test metrics.
 
 ## Research Status
 
-This repository contains baseline and tuned experiment pipelines for BERT4Rec and JEPA. Final comparative results and conclusions will be updated as experiments are completed and validated.
+This repository contains baseline and tuned experiment pipelines for BERT4Rec and standard JEPA, alongside a causal, one-pass JEPA implementation and a hyperparameter-search workflow.
+
+Ongoing experiments investigate the relationship between recommendation quality, optimization settings, training time, and computational efficiency. Final comparative conclusions will be updated as the causal experiments and additional analyses are completed and validated.
 
 ## Citation
 

@@ -27,13 +27,13 @@ model:
 
 training:
   batch_size: 64             # windows per step (~4-5k supervised targets)
-  learning_rate: 0.0005
-  weight_decay: 0.01
+  learning_rate: 0.001
+  weight_decay: 0.05
   num_epochs: 150
   patience: 20
   window_stride: 100         # windows start every N items (all ML-1M sequences fit in one)
   lr_schedule: "constant"    # "constant" or "cosine"
-  warmup_epochs: 0           # linear warmup length, in epochs (fractions ok)
+  warmup_epochs: 5           # linear warmup length, in epochs 
   min_lr_ratio: 0.0          # cosine floor as a fraction of learning_rate
   selection_window: 1        # pick best epoch by mean NDCG@10 of the last N epochs (1 = raw)
   ema_decay: 0.996
@@ -42,7 +42,7 @@ training:
   compile: false             # enable after the first run checks out
 
 output:
-  experiment_name: "jepa_causal_const"
-  checkpoint_dir: "checkpoints/jepa_causal_const"
-  results_dir: "results/jepa_causal_const"
-  best_checkpoint_name: "jepa_causal_const_best.pt"
+  experiment_name: "jepa_causal_tuned"
+  checkpoint_dir: "checkpoints/jepa_causal_tuned"
+  results_dir: "results/jepa_causal_tuned"
+  best_checkpoint_name: "jepa_causal_tuned_best.pt"
