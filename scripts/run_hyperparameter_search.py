@@ -23,6 +23,14 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+import sys
+from pathlib import Path
+
+# Add project root to sys.path so 'src' can be found when running from scripts/
+project_root = Path(__file__).resolve().parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
 # Import the training function and config utilities from your codebase
 from src.training.train_jepa_causal import train
 from src.utils.config import load_config
