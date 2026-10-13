@@ -166,11 +166,33 @@ def train_bert4rec(config_path: str) -> dict:
     logger.info("Training batches per epoch: %d", len(train_loader))
     logger.info("Trainable parameters: %s", f"{trainable_parameters:,}")
 
-    optimizer = AdamW(
-        model.parameters(),
-        lr=training_config["learning_rate"],
-        weight_decay=training_config["weight_decay"],
+    optimizer_kwargs = {
+        "lr": training_config["learning_rate"],
+        "weight_decay": training_config["weight_decay"],
+    }
+    # Fused AdamW is a numerically equivalent CUDA implementation when
+    # supported by the installed PyTorch build.
+    if device.type == "cuda" and training_config.get("fused_adamw", True):
+        try:
+            optimizer = AdamW(model.parameters(), **optimizer_kwargs, fused=True)
+        except (TypeError, RuntimeError):
+            optimizer = AdamW(model.parameters(), **optimizer_kwargs)
+    else:
+        optimizer = AdamW(model.parameters(), **optimizer_kwargs)
+
+    use_bf16 = (
+        device.type == "cuda"
+        and training_config.get("mixed_precision", "bf16") == "bf16"
+        and torch.cuda.is_bf16_supported()
     )
+    use_fp16 = (
+        device.type == "cuda"
+        and training_config.get("mixed_precision", "bf16") == "fp16"
+        and not torch.cuda.is_bf16_supported()
+    )
+    use_amp = use_bf16 or use_fp16
+    amp_dtype = torch.bfloat16 if use_bf16 else torch.float16
+    logger.info("Mixed precision: %s", "bf16" if use_bf16 else "fp16" if use_fp16 else "off")
 
     criterion = nn.CrossEntropyLoss(ignore_index=-100)
 
@@ -238,11 +260,18 @@ def train_bert4rec(config_path: str) -> dict:
 
             optimizer.zero_grad(set_to_none=True)
 
-            logits = model(input_ids)
-            loss = criterion(
-                logits.reshape(-1, model_config["vocab_size"]),
-                labels.reshape(-1),
-            )
+            supervised = labels.ne(-100)
+            if not supervised.any():
+                continue
+
+            with torch.autocast(
+                device_type=device.type,
+                dtype=amp_dtype,
+                enabled=use_amp,
+            ):
+                # Project only masked positions, not all 200 positions.
+                logits = model(input_ids, target_mask=supervised)
+                loss = criterion(logits.float(), labels[supervised])
 
             loss.backward()
             optimizer.step()
@@ -267,6 +296,7 @@ def train_bert4rec(config_path: str) -> dict:
             input_column="train_sequence",
             input_requires_mask=True,
             exclude_seen=True,
+            batch_size=training_config.get("evaluation_batch_size", 256),
         )
 
         epoch_time = time.perf_counter() - epoch_start

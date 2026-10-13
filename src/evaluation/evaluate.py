@@ -95,140 +95,101 @@ def evaluate_bert4rec(
     input_requires_mask: bool = True,
     limit_users: int | None = None,
     exclude_seen: bool = True,
+    batch_size: int = 256,
 ) -> dict:
-    """
-    Evaluate BERT4Rec on a user-level held-out dataset.
-
-    The evaluation sequence ends with a MASK token. The model's logits at
-    the MASK position are ranked over actual item IDs only.
-    """
-
+    """Batched BERT4Rec evaluation; preserves the user-level ranking metrics."""
     required_columns = {"user_id", input_column, target_column}
     missing_columns = required_columns.difference(df.columns)
-
     if missing_columns:
-        raise ValueError(
-            "Evaluation DataFrame is missing required columns: "
-            f"{sorted(missing_columns)}"
-        )
-
-    if vocab_size <= 2:
-        raise ValueError(f"vocab_size must be greater than 2, got {vocab_size}.")
-
-    if max_seq_len <= 0:
-        raise ValueError(f"max_seq_len must be positive, got {max_seq_len}.")
-
-    was_training = model.training
-    model.eval()
-
-    all_metrics = []
-    debug_outputs = []
-
+        raise ValueError(f"Evaluation DataFrame is missing required columns: {sorted(missing_columns)}")
+    if vocab_size <= 2 or max_seq_len <= 0:
+        raise ValueError("vocab_size must be > 2 and max_seq_len must be positive.")
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive.")
     if limit_users is not None:
         if limit_users <= 0:
-            raise ValueError(
-                f"limit_users must be positive, got {limit_users}."
-            )
+            raise ValueError("limit_users must be positive.")
         eval_users = df.iloc[:limit_users]
     else:
         eval_users = df
 
-    with torch.no_grad():
-        for _, row in eval_users.iterrows():
-            user_id = row["user_id"]
-            sequence = row[input_column]
+    # Prepare fixed-width batches on CPU, then transfer once per batch.
+    prepared = []
+    for _, row in eval_users.iterrows():
+        sequence = row[input_column]
+        sequence = sequence.tolist() if hasattr(sequence, "tolist") else list(sequence)
+        sequence = [int(x) for x in sequence]
+        target = int(row[target_column])
+        eval_seq = sequence + [mask_token_id] if input_requires_mask else sequence.copy()
+        eval_seq = eval_seq[-max_seq_len:]
+        if mask_token_id not in eval_seq:
+            raise ValueError(f"User {row['user_id']} evaluation sequence does not contain MASK token ({mask_token_id}).")
+        mask_position = len(eval_seq) - 1 - eval_seq[::-1].index(mask_token_id)
+        pad_len = max_seq_len - len(eval_seq)
+        padded = [pad_token_id] * pad_len + eval_seq
+        mask_position += pad_len
+        prepared.append((row["user_id"], len(sequence), target, sequence, padded, mask_position))
 
-            if hasattr(sequence, "tolist"):
-                sequence = sequence.tolist()
-            else:
-                sequence = list(sequence)
-
-            target = int(row[target_column])
-            original_len = len(sequence)
-
-            if input_requires_mask:
-                eval_seq = sequence + [mask_token_id]
-            else:
-                eval_seq = sequence.copy()
-
-            if len(eval_seq) > max_seq_len:
-                eval_seq = eval_seq[-max_seq_len:]
-
-            try:
-                mask_position = (
-                    len(eval_seq)
-                    - 1
-                    - eval_seq[::-1].index(mask_token_id)
-                )
-            except ValueError as exc:
-                raise ValueError(
-                    f"User {user_id} evaluation sequence does not contain "
-                    f"the MASK token ({mask_token_id})."
-                ) from exc
-
-            pad_len = max_seq_len - len(eval_seq)
-            eval_seq_padded = eval_seq + [pad_token_id] * pad_len
-
-            input_ids = torch.tensor(
-                [eval_seq_padded],
-                dtype=torch.long,
-                device=device,
-            )
-
-            logits = model(input_ids)
-            item_scores = logits[0, mask_position].detach().cpu().numpy()
-
-            item_scores[pad_token_id] = -float("inf")
-            item_scores[mask_token_id] = -float("inf")
-
-            if exclude_seen:
-                for seen_id in sequence:
-                    seen_id = int(seen_id)
-                    if 0 <= seen_id < vocab_size:
-                        item_scores[seen_id] = -float("inf")
-
-            ranked_items = sorted(
-                range(2, vocab_size),
-                key=lambda item_id: float(item_scores[item_id]),
-                reverse=True,
-            )
-
-            user_metrics = calculate_metrics(
-                ranked_items=ranked_items,
-                target=target,
-                top_ks=(5, 10),
-            )
-            all_metrics.append(user_metrics)
-
-            if len(debug_outputs) < 5:
-                target_rank = (
-                    ranked_items.index(target) + 1
-                    if target in ranked_items
-                    else -1
-                )
-
-                debug_outputs.append(
-                    {
-                        "user_id": user_id,
-                        "history_len": original_len,
-                        "target": target,
-                        "top_10": ranked_items[:10],
-                        "rank": target_rank,
-                        "hit_5": bool(user_metrics["HR@5"]),
-                        "hit_10": bool(user_metrics["HR@10"]),
-                    }
-                )
-
-    if not all_metrics:
+    if not prepared:
         raise ValueError("No users were available for BERT4Rec evaluation.")
 
-    if was_training:
-        model.train()
+    was_training = model.training
+    model.eval()
+    metric_rows = []
+    debug_outputs = []
+    try:
+        with torch.inference_mode():
+            for offset in range(0, len(prepared), batch_size):
+                batch_rows = prepared[offset:offset + batch_size]
+                input_ids = torch.tensor([r[4] for r in batch_rows], dtype=torch.long, device=device)
+                mask_positions = torch.tensor([r[5] for r in batch_rows], dtype=torch.long, device=device)
+                logits = model(input_ids)
+                row_indices = torch.arange(len(batch_rows), device=device)
+                scores = logits[row_indices, mask_positions].float()
+                scores[:, pad_token_id] = -float("inf")
+                scores[:, mask_token_id] = -float("inf")
+
+                if exclude_seen:
+                    for i, row in enumerate(batch_rows):
+                        seen = [x for x in row[3] if 0 <= x < vocab_size]
+                        if seen:
+                            scores[i, torch.tensor(seen, dtype=torch.long, device=device)] = -float("inf")
+
+                scores[:, :2] = -float("inf")
+                # Sorting on device avoids Python sorting every item's score.
+                ranked = torch.argsort(scores[:, 2:], dim=1, descending=True) + 2
+                top10 = ranked[:, :10].cpu()
+                targets = torch.tensor([r[2] for r in batch_rows], dtype=torch.long)
+                hits5 = top10[:, :5].eq(targets[:, None])
+                hits10 = top10.eq(targets[:, None])
+                rank_pos = torch.where(
+                    ranked.cpu().eq(targets[:, None]),
+                    torch.arange(1, ranked.shape[1] + 1)[None, :],
+                    torch.full((len(batch_rows), ranked.shape[1]), ranked.shape[1] + 1),
+                ).min(dim=1).values
+                for i, row in enumerate(batch_rows):
+                    rank = int(rank_pos[i])
+                    user_metrics = {
+                        "HR@5": float(bool(hits5[i].any())),
+                        "HR@10": float(bool(hits10[i].any())),
+                        "NDCG@5": 1.0 / np.log2(rank + 1) if rank <= 5 else 0.0,
+                        "NDCG@10": 1.0 / np.log2(rank + 1) if rank <= 10 else 0.0,
+                    }
+                    metric_rows.append(user_metrics)
+                    if len(debug_outputs) < 5:
+                        debug_outputs.append({
+                            "user_id": row[0], "history_len": row[1], "target": row[2],
+                            "top_10": top10[i].tolist(), "rank": rank if rank <= vocab_size - 2 else -1,
+                            "hit_5": bool(user_metrics["HR@5"]), "hit_10": bool(user_metrics["HR@10"]),
+                        })
+    finally:
+        if was_training:
+            model.train()
 
     return {
-        "HR@5": float(np.mean([m["HR@5"] for m in all_metrics])),
-        "HR@10": float(np.mean([m["HR@10"] for m in all_metrics])),
-        "NDCG@5": float(np.mean([m["NDCG@5"] for m in all_metrics])),
-        "NDCG@10": float(np.mean([m["NDCG@10"] for m in all_metrics])),
+        "HR@5": float(np.mean([m["HR@5"] for m in metric_rows])),
+        "HR@10": float(np.mean([m["HR@10"] for m in metric_rows])),
+        "NDCG@5": float(np.mean([m["NDCG@5"] for m in metric_rows])),
+        "NDCG@10": float(np.mean([m["NDCG@10"] for m in metric_rows])),
         "debug_outputs": debug_outputs,
     }

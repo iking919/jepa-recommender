@@ -68,13 +68,22 @@ class BERT4Rec(nn.Module):
             if parameter.dim() > 1:
                 nn.init.xavier_uniform_(parameter)
 
-    def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        target_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """
         Args:
             input_ids: Tensor of shape ``(batch_size, seq_len)``.
 
+        Args:
+            target_mask: Optional boolean (batch_size, seq_len) mask. If
+                supplied, logits are returned only for selected positions.
+
         Returns:
-            Logits of shape ``(batch_size, seq_len, vocab_size)``.
+            Full logits, or (num_selected_positions, vocab_size) logits when
+            target_mask is supplied.
         """
 
         batch_size, seq_len = input_ids.shape
@@ -103,5 +112,10 @@ class BERT4Rec(nn.Module):
             x,
             padding_mask=padding_mask,
         )
+
+        if target_mask is not None:
+            if target_mask.shape != input_ids.shape:
+                raise ValueError("target_mask must have the same shape as input_ids.")
+            return self.output_projection(encoded[target_mask.bool()])
 
         return self.output_projection(encoded)
