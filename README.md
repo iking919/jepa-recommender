@@ -294,6 +294,22 @@ python -m scripts.run_jepa_evaluation \
     --checkpoint checkpoints/jepa_tuned/jepa_tuned_best.pt
 ```
 
+### JEPA Causal (Constant Evaluation)
+
+```bash
+python -m scripts.run_jepa_evaluation \
+    --config configs/jepa_causal_const.yaml \
+    --checkpoint checkpoints/jepa_causal_const/jepa_causal_const_best.pt
+```
+
+### JEPA Causal (Cosine Evaluation)
+
+```bash
+python -m scripts.run_jepa_evaluation \
+    --config configs/jepa_causal_cos.yaml \
+    --checkpoint checkpoints/jepa_causal_cos/jepa_causal_cos_best.pt
+```
+
 These commands assume the corresponding scripts and checkpoints are present. Run the commands from the repository root so the project imports and relative paths resolve correctly.
 
 ## Results and Experiment Tracking
