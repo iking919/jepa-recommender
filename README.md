@@ -392,8 +392,6 @@ python -m scripts.run_jepa_evaluation \
   --checkpoint checkpoints/jepa_causal_tuned/jepa_causal_tuned_best.pt
 ```
 
-**Note:** The causal evaluation commands assume that `scripts.run_jepa_evaluation` supports the causal model architecture and its checkpoint format. If the evaluator does not support causal checkpoints, use or implement the appropriate causal evaluation entry point instead. Confirm the actual checkpoint paths against the output configuration for each run.
-
 ## Results and Experiment Tracking
 
 Each experiment has a dedicated results directory. For example:
@@ -448,10 +446,8 @@ The following are the current held-out test results for the standard BERT4Rec an
 | BERT4Rec | Tuned | 0.1416 | 0.2182 | 0.0893 | 0.1138 |
 | JEPA | Baseline | 0.0247 | 0.0328 | 0.0184 | 0.0209 |
 | JEPA | Tuned | 0.1285 | 0.1820 | 0.0917 | 0.1089 |
-
-These values apply to the configurations listed above; they should not be interpreted as results for the causal JEPA experiments.
-
-Causal JEPA baseline and tuned results should be added after their training and evaluation runs are complete and validated. Report validation metrics used for model selection separately from final held-out test metrics.
+| JEPA Causal | Baseline | 0.1329 | 0.1786 | 0.0940 | 0.1088 |
+| JEPA Causal | Tuned | 0.1336 | 0.1810 | 0.0962 | 0.1116 |
 
 ## Research Status
 
