@@ -294,12 +294,12 @@ Training saves model checkpoints under `checkpoints/` and experiment outputs und
 
 ## Hyperparameter Search
 
-Hyperparameter search is used to investigate optimization settings for the causal, one-pass JEPA implementation. The search evaluates the parameter combinations defined in `scripts/run_hyperparameter_search.py`, including both constant and cosine learning-rate schedules.
+Hyperparameter search is used to investigate optimization settings for the causal, one-pass JEPA implementation. The search evaluates the parameter combinations defined in `scripts/run_jepa_hyperparameter_search.py`, including both constant and cosine learning-rate schedules.
 
 The search is launched using the causal baseline configuration:
 
 ```bash
-python scripts/run_hyperparameter_search.py \
+python scripts/run_jepa_hyperparameter_search.py \
   --config configs/jepa_causal_baseline.yaml
 ```
 
