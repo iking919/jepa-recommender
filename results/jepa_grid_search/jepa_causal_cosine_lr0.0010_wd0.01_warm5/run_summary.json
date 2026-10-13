@@ -1,0 +1,78 @@
+{
+  "model": "JEPA (causal one-pass)",
+  "experiment_name": "jepa_causal_const",
+  "dataset": "MovieLens-1M",
+  "run_start": "2026-10-12T23:41:37.919155",
+  "run_end": "2026-10-12T23:43:22.880669",
+  "device": "cuda",
+  "seed": 42,
+  "configured_epochs": 150,
+  "completed_epochs": 49,
+  "best_epoch": 29,
+  "best_metrics": {
+    "HR@5": 0.14205297827720642,
+    "HR@10": 0.20132450759410858,
+    "NDCG@5": 0.10247192531824112,
+    "NDCG@10": 0.12161827087402344
+  },
+  "best_epoch_loss": 0.8279534590871711,
+  "best_selection_score": 0.12161827087402344,
+  "timing": {
+    "total_training_time_seconds": 104.96149468282238,
+    "total_training_time_minutes": 1.7493582447137064,
+    "total_train_only_seconds": 56.53602057090029,
+    "time_to_best_epoch_seconds": 61.963125601178035,
+    "average_epoch_time_seconds": 2.1420713200575996,
+    "average_train_time_seconds": 1.1537963381816385,
+    "average_validation_time_seconds": 0.9815485140603339
+  },
+  "hardware": {
+    "device": "cuda",
+    "gpu": "NVIDIA A100 80GB PCIe",
+    "peak_gpu_memory_gb": 0.7785310745239258
+  },
+  "model_parameters": {
+    "total": 5485824,
+    "trainable": 4610816
+  },
+  "training_configuration": {
+    "batch_size": 64,
+    "learning_rate": 0.001,
+    "weight_decay": 0.01,
+    "mixed_precision": true,
+    "amp_dtype": "bfloat16",
+    "compile": false,
+    "ema_decay": 0.996,
+    "patience": 20,
+    "window_stride": 100,
+    "lr_schedule": "cosine",
+    "warmup_epochs": 5,
+    "min_lr_ratio": 0.0,
+    "selection_window": 1,
+    "save_checkpoint": false
+  },
+  "model_configuration": {
+    "vocab_size": 3418,
+    "max_seq_len": 200,
+    "hidden_dim": 256,
+    "num_layers": 4,
+    "num_heads": 8,
+    "feed_forward_dim": 1024,
+    "dropout": 0.2,
+    "pad_token_id": 0,
+    "causal": true
+  },
+  "data": {
+    "sequences": 6040,
+    "training_windows": 6040,
+    "supervised_targets_per_epoch": 642719,
+    "training_batches_per_epoch": 95,
+    "validation_samples": 6040
+  },
+  "files": {
+    "checkpoint": null,
+    "epoch_history": "/home/kingi/jepa-recommender/results/jepa_grid_search/jepa_causal_cosine_lr0.0010_wd0.01_warm5/training_history.csv",
+    "run_summary": "/home/kingi/jepa-recommender/results/jepa_grid_search/jepa_causal_cosine_lr0.0010_wd0.01_warm5/run_summary.json",
+    "config": "/home/kingi/jepa-recommender/results/jepa_grid_search/jepa_causal_cosine_lr0.0010_wd0.01_warm5/config.yaml"
+  }
+}
