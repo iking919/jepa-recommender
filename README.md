@@ -294,9 +294,17 @@ Training saves model checkpoints under `checkpoints/` and experiment outputs und
 
 ## Hyperparameter Search
 
-Hyperparameter search is used to investigate optimization settings for the causal, one-pass JEPA implementation. The search evaluates the parameter combinations defined in `scripts/run_jepa_hyperparameter_search.py`, including both constant and cosine learning-rate schedules.
+Hyperparameter search is used to investigate optimization settings for the BERT4Rec and causal, one-pass JEPA implementation. The search evaluates the parameter combinations defined in hyperparamter search script respectively.
 
-The search is launched using the causal baseline configuration:
+The search is launched using each baseline configuration:
+
+BERT4Rec:
+```bash
+python scripts/run_bert4rec_hyperparameter_search.py \
+  --config configs/bert4rec_baseline.yaml
+```
+
+JEPA Causal:
 
 ```bash
 python scripts/run_jepa_hyperparameter_search.py \
@@ -311,7 +319,7 @@ Search outputs are organized separately from ordinary training results:
 
 ```text
 results/
-└── jepa_grid_search/
+└── <model>_grid_search/
     ├── search_summary.csv
     ├── grid_search_report.json
     ├── <trial_name_1>/
@@ -336,7 +344,7 @@ The search is intended to avoid saving a model checkpoint for every trial, while
 
 Use validation performance, such as validation NDCG@10, to compare candidate configurations and select the optimization settings for the tuned causal JEPA experiment.
 
-The selected settings should then be recorded in `configs/jepa_causal_tuned.yaml`. Keep the baseline configuration unchanged so the original settings remain available for comparison.
+The selected settings should then be recorded in `configs/bert4rec_tuned.yaml` and `configs/jepa_causal_tuned.yaml` respectively. Keep the baseline configuration unchanged so the original settings remain available for comparison.
 
 For reproducibility, retain the aggregate search results and the configuration for each trial. Report the final held-out test metrics only after selecting the configuration using validation data.
 
@@ -403,8 +411,7 @@ results/
 ├── jepa_baseline/
 ├── jepa_tuned/
 ├── jepa_causal_baseline/
-├── jepa_causal_tuned/
-└── jepa_grid_search/
+└── jepa_causal_tuned/
 ```
 
 Depending on the experiment pipeline, results may include:
