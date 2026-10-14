@@ -1,0 +1,34 @@
+{
+  "model": "BERT4Rec",
+  "experiment_name": "bert4rec_lr0p0003_wd0p01_mask0p3_bs256",
+  "dataset": "MovieLens-1M",
+  "run_start": "2026-10-13T19:42:28.432283",
+  "run_end": "2026-10-13T19:46:29.753035",
+  "device": "cuda",
+  "seed": 42,
+  "configured_epochs": 150,
+  "completed_epochs": 150,
+  "best_epoch": 143,
+  "best_validation_metrics": {
+    "epoch": 143,
+    "loss": 5.493310337192965,
+    "learning_rate": 0.0003,
+    "HR@5": 0.1879139072847682,
+    "HR@10": 0.27798013245033115,
+    "NDCG@5": 0.12446289563528608,
+    "NDCG@10": 0.15345770481015647,
+    "epoch_time_seconds": 1.5767608429305255
+  },
+  "timing": {
+    "total_training_time_seconds": 241.32073273998685,
+    "total_training_time_minutes": 4.022012212333114,
+    "average_epoch_time_seconds": 1.6088048849332457
+  },
+  "model_parameters": {
+    "trainable": 1300570
+  },
+  "files": {
+    "checkpoint": "/home/kingi/jepa-recommender/checkpoints/bert4rec_grid_search/bert4rec_lr0p0003_wd0p01_mask0p3_bs256/bert4rec_lr0p0003_wd0p01_mask0p3_bs256_best.pt",
+    "training_history": "/home/kingi/jepa-recommender/results/bert4rec_grid_search/bert4rec_lr0p0003_wd0p01_mask0p3_bs256/training_history.csv"
+  }
+}

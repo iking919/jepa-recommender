@@ -1,0 +1,34 @@
+seed: 42
+device: cuda
+data:
+  train_sequences_path: data/processed/ml-1m/bert4rec/train_sequences.parquet
+  validation_path: data/processed/ml-1m/bert4rec/validation.parquet
+  test_path: data/processed/ml-1m/bert4rec/test.parquet
+model:
+  vocab_size: 3418
+  max_seq_len: 200
+  hidden_dim: 128
+  num_layers: 2
+  num_heads: 4
+  feed_forward_dim: 512
+  dropout: 0.2
+  pad_token_id: 0
+  mask_token_id: 1
+training:
+  batch_size: 128
+  learning_rate: 0.0003
+  weight_decay: 0.05
+  num_epochs: 150
+  patience: 10
+  mask_probability: 0.3
+  num_workers: 2
+  persistent_workers: true
+  use_scheduler: false
+  scheduler_type: cosine_annealing
+  min_lr: 1.0e-05
+output:
+  experiment_name: bert4rec_lr0p0003_wd0p05_mask0p3_bs128
+  checkpoint_dir: /home/kingi/jepa-recommender/checkpoints/bert4rec_grid_search/bert4rec_lr0p0003_wd0p05_mask0p3_bs128
+  results_dir: /home/kingi/jepa-recommender/results/bert4rec_grid_search/bert4rec_lr0p0003_wd0p05_mask0p3_bs128
+  best_checkpoint_name: bert4rec_lr0p0003_wd0p05_mask0p3_bs128_best.pt
+experiment_name: bert4rec_lr0p0003_wd0p05_mask0p3_bs128
