@@ -38,6 +38,7 @@ training:
   selection_window: 1        # pick best epoch by mean NDCG@10 of the last N epochs (1 = raw)
   ema_decay: 0.996
   mixed_precision: true
+  dropout: 0.3
   amp_dtype: "bfloat16"
   compile: false             # enable after the first run checks out
 
