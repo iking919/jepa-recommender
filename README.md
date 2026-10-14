@@ -453,15 +453,8 @@ The following are the current held-out test results for the standard BERT4Rec an
 | BERT4Rec | Tuned | 0.1955 | 0.2884 | 0.12956 | 0.1593 |
 | JEPA | Baseline | 0.0728 | 0.1065 | 0.0491 | 0.0598 |
 | JEPA | Tuned | 0.1273 | 0.1801 | 0.0928 | 0.1098 |
-| JEPA Causal | Baseline | 0.1329 | 0.1786 | 0.0940 | 0.1088 |
-| JEPA Causal | Tuned | 0.1336 | 0.1810 | 0.0962 | 0.1116 |
-
-BERT4Rec Test Results
-========================================
-HR@5     0.1444
-HR@10    0.2265
-NDCG@5   0.0956
-NDCG@10  0.1220
+| JEPA Causal | Baseline | 0.1545 | 0.1935 | 0.1108 | 0.1234 |
+| JEPA Causal | Tuned | 0.1591 | 0.2065 | 0.1140 | 0.1292 |
 
 
 ## Research Status
