@@ -6,14 +6,6 @@ Checkpoint saving is enabled by default. Disable it with:
     training.save_checkpoint: false
 
 Training histories, resolved configurations, and run summaries are always saved.
-
-Default artifacts:
-    checkpoints/<experiment>/<experiment>_best.pt  (if enabled)
-    results/<experiment>/config.yaml
-    results/<experiment>/training_history.csv
-    results/<experiment>/run_summary.json
-
-A custom output.results_dir overrides the default results directory.
 """
 
 from __future__ import annotations

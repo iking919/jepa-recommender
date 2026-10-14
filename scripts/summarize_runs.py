@@ -1,5 +1,5 @@
 """
-Summarise several runs (for example one config over several seeds) with
+Summarize several runs (for example one config over several seeds) with
 mean and standard deviation, so differences can be judged against noise.
 
 Reads results/<run>/run_summary.json (validation) and, if present,

@@ -1,9 +1,5 @@
 """
 Training pipeline for JEPA.
-
-Experiment artifacts are separated into:
-    checkpoints/<experiment>/  -> model checkpoints only
-    results/<experiment>/      -> epoch history and run summary
 """
 
 from __future__ import annotations
