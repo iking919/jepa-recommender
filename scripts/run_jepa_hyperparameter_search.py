@@ -58,9 +58,10 @@ def configure_logging() -> None:
 
 SEARCH_SPACE = {
     "lr_schedule": ["constant", "cosine"],
-    "learning_rate": [1e-4, 3e-4, 5e-4, 1e-3],
+    "learning_rate": [5e-5, 1e-4, 3e-4, 1e-3],
     "weight_decay": [0.01, 0.05],
-    "warmup_epochs": [0, 5],
+    "warmup_epochs": [0, 5, 10],
+    "ema_decay": [0.990, 0.996, 0.999],
 }
 
 
@@ -192,6 +193,7 @@ def build_trial_name(
     learning_rate: float,
     weight_decay: float,
     warmup_epochs: int,
+    ema_decay: float,
 ) -> str:
     """Build a readable and filesystem-safe trial name."""
     lr_label = f"{learning_rate:.4f}"
@@ -202,6 +204,7 @@ def build_trial_name(
         f"_lr{lr_label}"
         f"_wd{wd_label}"
         f"_warm{warmup_epochs}"
+        f"_ema{ema_decay:.3f}"
     )
 
 

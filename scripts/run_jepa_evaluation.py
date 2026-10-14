@@ -92,6 +92,9 @@ def main() -> None:
         loader=test_loader,
         num_items=model_config["vocab_size"],
         device=device,
+        pad_token_id=model_config.get("pad_token_id", 0),
+        mask_token_id=model_config.get("mask_token_id", 1),
+        exclude_seen=True,
     )
 
     print("\nJEPA Test Results")

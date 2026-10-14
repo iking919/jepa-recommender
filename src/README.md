@@ -27,6 +27,7 @@ Contains the model architectures, including:
 
 - BERT4Rec
 - JEPA
+- JEPA Causal
 - Shared Transformer components
 - JEPA prediction components
 
@@ -57,8 +58,8 @@ The source code is organized to:
 From the repository root:
 
 ```bash
-python -m src.training.train_bert4rec --config configs/bert4rec_baseline.yaml
-python -m src.training.train_jepa --config configs/jepa_baseline.yaml
+python -m src.training.train_bert4rec --config configs/...
+python -m src.training.train_jepa --config configs/...
 ```
 
 Use the corresponding tuned configuration files to run tuned experiments.

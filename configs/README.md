@@ -10,6 +10,8 @@ This directory contains the YAML configuration files used to define model archit
 | `bert4rec_tuned.yaml` | Tuned BERT4Rec configuration |
 | `jepa_baseline.yaml` | Baseline JEPA configuration |
 | `jepa_tuned.yaml` | Tuned JEPA configuration |
+| `jepa_causal_baseline.yaml` | Baseline JEPA causal configuration |
+| `jepa_causal_tuned.yaml` | Tuned JEPA causal configuration |
 
 ## Configuration Contents
 
@@ -36,6 +38,9 @@ python -m src.training.train_bert4rec --config configs/bert4rec_tuned.yaml
 
 python -m src.training.train_jepa --config configs/jepa_baseline.yaml
 python -m src.training.train_jepa --config configs/jepa_tuned.yaml
+
+python -m src.training.train_jepa --config configs/jepa_causal_baseline.yaml
+python -m src.training.train_jepa --config configs/jepa_causal_tuned.yaml
 ```
 
 ## Reproducibility

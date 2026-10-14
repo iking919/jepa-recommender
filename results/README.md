@@ -12,7 +12,11 @@ results/
 ├── bert4rec_baseline/
 ├── bert4rec_tuned/
 ├── jepa_baseline/
-└── jepa_tuned/
+├── jepa_tuned/
+├── jepa_causal_baseline/
+├── jepa_causal_tuned/
+├── jepa_grid_search/
+└── bert4rec_grid_search/
 ```
 
 Each directory corresponds to one experiment configuration.
@@ -25,6 +29,10 @@ Each directory corresponds to one experiment configuration.
 | `bert4rec_tuned/` | Tuned BERT4Rec outputs |
 | `jepa_baseline/` | Baseline JEPA outputs |
 | `jepa_tuned/` | Tuned JEPA outputs |
+| `jepa_causal_baseline/` | Baseline JEPA causal outputs |
+| `jepa_causal_tuned/` | Tuned JEPA causal outputs |
+| `jepa_grid_search/` | JEPA causal hyperparameter grid search outputs |
+| `bert4rec_grid_search/` | BERT4Rec hyperparameter grid search outputs |
 
 ## Result Files
 
@@ -35,6 +43,8 @@ Depending on the experiment pipeline, each directory may contain:
 | `training_history.csv` | Epoch-level loss, validation metrics, and timing |
 | `run_summary.json` | Run configuration and summary information |
 | `test_results.json` | Final held-out test metrics |
+| `grid_search_report.json` | Final grid search results report |
+| `search_summary.csv` | Final grid search validation metrics |
 
 The exact files generated depend on the training and evaluation scripts.
 
