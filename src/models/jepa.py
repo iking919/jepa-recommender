@@ -25,12 +25,14 @@ class ContextEncoder(nn.Module):
         feed_forward_dim: int = 512,
         dropout: float = 0.1,
         pad_token_id: int = 0,
+        causal: bool = False,
     ) -> None:
         super().__init__()
 
         self.pad_token_id = pad_token_id
         self.max_seq_len = max_seq_len
         self.hidden_dim = hidden_dim
+        self.causal = causal
 
         self.item_embedding = nn.Embedding(
             vocab_size,
@@ -49,20 +51,29 @@ class ContextEncoder(nn.Module):
             batch_first=True,
         )
 
+        # The non-causal path keeps PyTorch's default so existing
+        # checkpoints and results behave exactly as before.
+        encoder_kwargs = {"enable_nested_tensor": False} if causal else {}
+
         self.transformer_encoder = nn.TransformerEncoder(
             encoder_layer,
             num_layers=num_layers,
+            **encoder_kwargs,
         )
 
-    def forward(
-        self,
-        x: torch.Tensor,
-        actual_lens: torch.Tensor,
-    ) -> torch.Tensor:
-        """Return the hidden representation of the final valid item."""
+        if causal:
+            # Not persistent: keeps state_dict identical in structure to a
+            # non-causal model of the same size.
+            self.register_buffer(
+                "causal_mask",
+                nn.Transformer.generate_square_subsequent_mask(max_seq_len),
+                persistent=False,
+            )
+
+    def _embed(self, x: torch.Tensor) -> torch.Tensor:
+        """Item + position embeddings with dropout."""
 
         batch_size, seq_len = x.shape
-        padding_mask = x.eq(self.pad_token_id)
 
         item_embeddings = self.item_embedding(x)
 
@@ -74,14 +85,57 @@ class ContextEncoder(nn.Module):
 
         position_embeddings = self.position_embedding(positions)
 
-        transformer_input = self.dropout(
-            item_embeddings + position_embeddings
+        return self.dropout(item_embeddings + position_embeddings)
+
+    def encode_sequence(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Return the hidden state at every position (causal models only).
+
+        Position ``j`` attends only to positions ``0..j``. Sequences are
+        right-padded, so valid positions never see padding and no padding
+        mask is needed. Leaving it out also lets PyTorch use its fused
+        causal attention kernel. Outputs at padded positions are
+        meaningless and must be ignored by the caller.
+        """
+
+        if not self.causal:
+            raise ValueError(
+                "encode_sequence requires a causal encoder "
+                "(set model.causal: true)."
+            )
+
+        seq_len = x.shape[1]
+
+        if seq_len > self.max_seq_len:
+            raise ValueError(
+                f"Sequence length {seq_len} exceeds "
+                f"max_seq_len={self.max_seq_len}."
+            )
+
+        return self.transformer_encoder(
+            self._embed(x),
+            mask=self.causal_mask[:seq_len, :seq_len],
+            is_causal=True,
         )
 
-        encoded = self.transformer_encoder(
-            transformer_input,
-            src_key_padding_mask=padding_mask,
-        )
+    def forward(
+        self,
+        x: torch.Tensor,
+        actual_lens: torch.Tensor,
+    ) -> torch.Tensor:
+        """Return the hidden representation of the final valid item."""
+
+        batch_size, seq_len = x.shape
+
+        if self.causal:
+            encoded = self.encode_sequence(x)
+        else:
+            padding_mask = x.eq(self.pad_token_id)
+
+            encoded = self.transformer_encoder(
+                self._embed(x),
+                src_key_padding_mask=padding_mask,
+            )
 
         last_indices = (actual_lens - 1).clamp(min=0)
 
@@ -157,6 +211,7 @@ class JEPA(nn.Module):
         feed_forward_dim: int = 512,
         dropout: float = 0.1,
         pad_token_id: int = 0,
+        causal: bool = False,
     ) -> None:
         super().__init__()
 
@@ -169,6 +224,7 @@ class JEPA(nn.Module):
             feed_forward_dim=feed_forward_dim,
             dropout=dropout,
             pad_token_id=pad_token_id,
+            causal=causal,
         )
 
         self.target_encoder = TargetEncoder(
@@ -207,3 +263,23 @@ class JEPA(nn.Module):
             return z_pred, z_target
 
         return z_pred
+
+    def forward_sequence(
+        self,
+        input_sequence: torch.Tensor,
+        target_sequence: torch.Tensor,
+    ):
+        """
+        One-pass training forward for causal models.
+
+        ``input_sequence[:, j]`` is the item at position ``j`` and
+        ``target_sequence[:, j]`` is the item that follows it. Returns
+        per-position predictions and EMA target embeddings, both of shape
+        ``(batch, seq_len, hidden_dim)``.
+        """
+
+        hidden = self.context_encoder.encode_sequence(input_sequence)
+        z_pred = self.predictor(hidden)
+        z_target = self.target_encoder(target_sequence)
+
+        return z_pred, z_target

@@ -22,11 +22,11 @@ model:
   mask_token_id: 1
 
 training:
-  batch_size: 64
+  batch_size: 256
   learning_rate: 0.001
   weight_decay: 0.01
-  num_epochs: 50
-  mask_probability: 0.15
+  num_epochs: 150
+  mask_probability: 0.3
   num_workers: 2
   persistent_workers: true
   use_scheduler: true

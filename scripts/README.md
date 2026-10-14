@@ -2,14 +2,24 @@
 
 This directory contains command-line entry points for running project workflows that use the reusable modules under `src/`.
 
-## Evaluation Scripts
-
-The repository includes evaluation entry points for the trained recommendation models.
-
 | Script | Purpose |
 |---|---|
+| `download_ml1m.py` | Download GroupLens Dataset |
+| `preprocess_ml1m.py` | Preprocess Dataset |
 | `run_bert4rec_evaluation.py` | Evaluate a BERT4Rec checkpoint |
 | `run_jepa_evaluation.py` | Evaluate a JEPA checkpoint |
+| `run_bert4rec_hyperparameter_search.py` | Run BERT4Rec hyperparameter search |
+| `run_jepa_hyperparameter_search.py` | Run JEPA Causal hyperparameter search |
+
+
+## Dataset Preparation
+
+Run the preprocessing entry points available in the repository to generate the intermediate and processed datasets. If the repository includes `scripts/download_ml1m.py` and `scripts/preprocess_ml1m.py`, the commands are:
+
+```bash
+python scripts/download_ml1m.py
+python scripts/preprocess_ml1m.py
+```
 
 ## BERT4Rec Evaluation
 
@@ -47,13 +57,23 @@ python -m scripts.run_jepa_evaluation \
     --checkpoint checkpoints/jepa_tuned/jepa_tuned_best.pt
 ```
 
-## Dataset Preparation
+## Hyperparameter Search
 
-If dataset download or preprocessing scripts are included in this directory, consult their command-line options and use them from the repository root.
+BERT4Rec:
 
-Do not assume that a preparation script exists unless it is present in the current repository.
+```bash
+python scripts/run_bert4rec_hyperparameter_search.py \
+    --config configs/bert4rec_baseline.yaml
+```
 
-## Execution
+JEPA:
+
+```bash
+python scripts/run_jepa_hyperparameter_search.py \
+    --config configs/jepa_baseline.yaml
+```
+
+## General Execution
 
 Run scripts using Python's module execution syntax from the repository root:
 

@@ -1,0 +1,78 @@
+{
+  "model": "JEPA (causal one-pass)",
+  "experiment_name": "jepa_causal_tuned",
+  "dataset": "MovieLens-1M",
+  "run_start": "2026-10-13T23:07:01.830266",
+  "run_end": "2026-10-13T23:10:05.407872",
+  "device": "cuda",
+  "seed": 42,
+  "configured_epochs": 150,
+  "completed_epochs": 62,
+  "best_epoch": 42,
+  "best_metrics": {
+    "HR@5": 0.1728476881980896,
+    "HR@10": 0.23211920261383057,
+    "NDCG@5": 0.12304756045341492,
+    "NDCG@10": 0.1421038657426834
+  },
+  "best_epoch_loss": 0.806353759765625,
+  "best_selection_score": 0.1421038657426834,
+  "timing": {
+    "total_training_time_seconds": 183.57759448792785,
+    "total_training_time_minutes": 3.0596265747987976,
+    "total_train_only_seconds": 64.50959403021261,
+    "time_to_best_epoch_seconds": 119.82206483976915,
+    "average_epoch_time_seconds": 2.960928943353675,
+    "average_train_time_seconds": 1.0404773230679454,
+    "average_validation_time_seconds": 1.8177700001265733
+  },
+  "hardware": {
+    "device": "cuda",
+    "gpu": "NVIDIA A100 80GB PCIe",
+    "peak_gpu_memory_gb": 0.7783637046813965
+  },
+  "model_parameters": {
+    "total": 5485824,
+    "trainable": 4610816
+  },
+  "training_configuration": {
+    "batch_size": 64,
+    "learning_rate": 0.001,
+    "weight_decay": 0.05,
+    "mixed_precision": true,
+    "amp_dtype": "bfloat16",
+    "compile": false,
+    "ema_decay": 0.996,
+    "patience": 20,
+    "window_stride": 100,
+    "lr_schedule": "constant",
+    "warmup_epochs": 5,
+    "min_lr_ratio": 0.0,
+    "selection_window": 1,
+    "save_checkpoint": true
+  },
+  "model_configuration": {
+    "vocab_size": 3418,
+    "max_seq_len": 200,
+    "hidden_dim": 256,
+    "num_layers": 4,
+    "num_heads": 8,
+    "feed_forward_dim": 1024,
+    "dropout": 0.2,
+    "pad_token_id": 0,
+    "causal": true
+  },
+  "data": {
+    "sequences": 6040,
+    "training_windows": 6040,
+    "supervised_targets_per_epoch": 642719,
+    "training_batches_per_epoch": 95,
+    "validation_samples": 6040
+  },
+  "files": {
+    "checkpoint": "checkpoints/jepa_causal_tuned/jepa_causal_tuned_best.pt",
+    "epoch_history": "results/jepa_causal_tuned/training_history.csv",
+    "run_summary": "results/jepa_causal_tuned/run_summary.json",
+    "config": "results/jepa_causal_tuned/config.yaml"
+  }
+}

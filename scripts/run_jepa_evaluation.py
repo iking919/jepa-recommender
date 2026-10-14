@@ -81,6 +81,7 @@ def main() -> None:
         feed_forward_dim=model_config["feed_forward_dim"],
         dropout=model_config["dropout"],
         pad_token_id=model_config.get("pad_token_id", 0),
+        causal=model_config.get("causal", False),
     ).to(device)
 
     checkpoint = load_checkpoint(args.checkpoint, map_location=device)
@@ -91,6 +92,9 @@ def main() -> None:
         loader=test_loader,
         num_items=model_config["vocab_size"],
         device=device,
+        pad_token_id=model_config.get("pad_token_id", 0),
+        mask_token_id=model_config.get("mask_token_id", 1),
+        exclude_seen=True,
     )
 
     print("\nJEPA Test Results")

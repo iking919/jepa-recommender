@@ -35,27 +35,30 @@ class BERT4RecDataset(Dataset):
         return len(self.sequences)
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
-        sequence = list(self.sequences[index])[-self.max_seq_len:]
-
-        input_sequence = sequence.copy()
-        labels = [-100] * len(sequence)
-
-        for position in range(len(sequence)):
-            if torch.rand(1).item() < self.mask_probability:
-                labels[position] = sequence[position]
-                input_sequence[position] = self.mask_token
-
-        padding_length = self.max_seq_len - len(input_sequence)
-
-        input_sequence = (
-            [self.pad_token] * padding_length + input_sequence
+        sequence = torch.as_tensor(
+            list(self.sequences[index])[-self.max_seq_len:], dtype=torch.long
         )
-        labels = [-100] * padding_length + labels
+        length = sequence.numel()
 
-        return {
-            "input_ids": torch.tensor(input_sequence, dtype=torch.long),
-            "labels": torch.tensor(labels, dtype=torch.long),
-        }
+        # One vectorized random draw replaces one Python/PyTorch call per token.
+        selected = torch.rand(length) < self.mask_probability
+        labels = torch.full((length,), -100, dtype=torch.long)
+        labels[selected] = sequence[selected]
+        input_sequence = sequence.clone()
+        input_sequence[selected] = self.mask_token
+
+        padding_length = self.max_seq_len - length
+        if padding_length:
+            input_sequence = torch.cat((
+                torch.full((padding_length,), self.pad_token, dtype=torch.long),
+                input_sequence,
+            ))
+            labels = torch.cat((
+                torch.full((padding_length,), -100, dtype=torch.long),
+                labels,
+            ))
+
+        return {"input_ids": input_sequence, "labels": labels}
 
 
 class JEPADataset(Dataset):
