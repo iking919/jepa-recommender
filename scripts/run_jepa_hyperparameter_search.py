@@ -40,29 +40,45 @@ LOGGER = logging.getLogger("jepa_unified_search")
 
 # ---------------------------------------------------------------------------
 # SEARCH BOX: edit this section to choose what gets tuned.
-# Each active list contributes to the Cartesian product. A single value pins
-# a parameter. Commented examples document additional candidate dimensions.
 # ---------------------------------------------------------------------------
 SEARCH_SPACE: dict[str, list[Any]] = {
-    # Optimizer / schedule parameters explored across the two prior scripts.
-    "lr_schedule": ["constant"],  # Consider ["constant", "cosine"]
-    "learning_rate": [1e-3, 2e-3],
-    "weight_decay": [0.05],  # Earlier grid: [0.01, 0.05]
-    "warmup_epochs": [5],  # Earlier grid: [0, 5, 10]
-    "ema_decay": [0.90, 0.97, 0.996],  # Earlier grid also tried [0.990, 0.999]
-    "dropout": [0.2, 0.3, 0.4],
+    # Optimizer / schedule
+    # "lr_schedule": ["constant"],
+    "lr_schedule": ["constant", "cosine"],
+    "learning_rate": [5e-4],
+    # "learning_rate": [5e-5, 1e-4, 3e-4, 5e-4, 1e-3, 2e-3],
+    "weight_decay": [0.01],
+    # "weight_decay": [0.01, 0.05],
+    "warmup_epochs": [0],
+    # "warmup_epochs": [0, 5, 10],
+    "ema_decay": [0.996],
+    # "ema_decay": [0.90, 0.97, 0.990, 0.996, 0.999],
+    "dropout": [0.2],
+    # "dropout": [0.1, 0.2, 0.3, 0.4],
 
-    # Requested additions. Current reference values: stride=100, hidden dim=256.
-    "window_stride": [100],  # Try [25, 50, 100, 150, 200] after validating semantics
-    "hidden_dim": [256],  # Try [128, 192, 256, 384] subject to architecture constraints
+    # Window stride and latent dimension
+    # "window_stride": [100],
+    "window_stride": [25, 50, 75, 100, 125, 150, 200],
+    # "hidden_dim": [256],
+    "hidden_dim": [128, 192, 256, 320, 384],
 
-    # Other architecture / throughput dimensions are available but pinned by
-    # default. Uncomment alternatives only after confirming the model supports them.
-    "num_layers": [4],       # e.g. [2, 3, 4]
-    "num_heads": [8],        # Must divide hidden_dim evenly
-    "ff_dim": [1024],        # e.g. [512, 768, 1024, 1536]
-    # "batch_size": [32, 64, 128],
+    # Architecture
+    "num_layers": [4],
+    # "num_layers": [2, 3, 4],
+    "num_heads": [8],
+    # "num_heads": [4, 8],
+    "feed_forward_dim": [1024],
+    # "feed_forward_dim": [512, 768, 1024, 1536],
+
+    # Throughput and sequence length
+    "batch_size": [512],
+    # "batch_size": [32, 64, 128, 256, 512],
+    "max_seq_len": [200],
     # "max_seq_len": [100, 150, 200],
+
+    # Optional dimensions
+    # "min_lr_ratio": [0.0, 0.01],
+    # "selection_window": [1, 3],
 }
 
 # Parameter-to-config mappings. Confirm these against your YAML and trainer.
