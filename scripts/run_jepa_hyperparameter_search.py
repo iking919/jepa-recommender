@@ -58,9 +58,9 @@ SEARCH_SPACE: dict[str, list[Any]] = {
 
     # Window stride and latent dimension
     # "window_stride": [100],
-    "window_stride": [25, 50, 75, 100, 125, 150, 200],
+    "window_stride": [25, 50, 100, 150],
     # "hidden_dim": [256],
-    "hidden_dim": [128, 192, 256, 320, 384],
+    "hidden_dim": [128, 256, 384],
 
     # Architecture
     "num_layers": [4],
