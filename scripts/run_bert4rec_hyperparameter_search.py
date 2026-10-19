@@ -1,39 +1,42 @@
-"""Staged grid search for BERT4Rec using this repository's training pipeline.
 
-Run from the repository root:
-    python scripts/run_bert4rec_hyperparameter_search.py \
-        --config configs/bert4rec_tuned.yaml
-
-Each trial gets its own config, checkpoint, training history, and run summary.
-The aggregate CSV and JSON report are updated after each trial. Trials are
-ranked by best validation NDCG@10; this script never evaluates the test set.
 """
+Compact BERT4Rec hyperparameter grid search.
+
+The search writes only aggregate reports to:
+    results/bert4rec_grid_search/
+        search_summary.csv
+        config_summary.csv
+        grid_search_report.json
+
+Individual trial checkpoints, YAML files, histories, and run summaries
+are disabled. The trainer returns per-epoch history in memory.
+
+Resume behavior:
+    Completed trial IDs in grid_search_report.json are skipped by default.
+    Use --restart to start a fresh search and overwrite the aggregate reports.
+"""
+
 from __future__ import annotations
 
 import argparse
-import copy
+import csv
 import itertools
 import json
 import logging
-import math
-import sys
+import time
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
-import yaml
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
 from src.training.train_bert4rec import train_bert4rec
+from src.utils.config import load_config
+from src.utils.logging import setup_logging
 
-LOGGER = logging.getLogger("bert4rec_hyperparameter_search")
 
-# 24-trial first-pass grid. Keep architecture fixed initially; tune the main
-# optimization and masking variables before spending compute on model size.
+logger = logging.getLogger(__name__)
+
+
 SEARCH_SPACE: dict[str, list[Any]] = {
     "learning_rate": [3e-4, 5e-4, 1e-3],
     "weight_decay": [0.01, 0.05],
@@ -42,225 +45,407 @@ SEARCH_SPACE: dict[str, list[Any]] = {
 }
 
 
-def configure_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(message)s",
-        handlers=[logging.StreamHandler(sys.stdout)],
-        force=True,
+def build_trials() -> list[dict[str, Any]]:
+    """Build all combinations in a deterministic order."""
+
+    names = list(SEARCH_SPACE)
+    values = [SEARCH_SPACE[name] for name in names]
+
+    return [
+        dict(zip(names, combination))
+        for combination in itertools.product(*values)
+    ]
+
+
+def write_csv(records: list[dict], path: Path) -> None:
+    """Write aggregate records to a CSV file."""
+
+    if not records:
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Keep a consistent column order across every row.
+    fieldnames = list(records[0].keys())
+
+    for record in records[1:]:
+        for key in record:
+            if key not in fieldnames:
+                fieldnames.append(key)
+
+    with path.open("w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(
+            file,
+            fieldnames=fieldnames,
+            extrasaction="ignore",
+        )
+        writer.writeheader()
+        writer.writerows(records)
+
+
+def write_json(data: dict, path: Path) -> None:
+    """Write JSON through a temporary file to reduce corruption risk."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_suffix(path.suffix + ".tmp")
+
+    with temporary_path.open("w", encoding="utf-8") as file:
+        json.dump(data, file, indent=2)
+
+    temporary_path.replace(path)
+
+
+def save_reports(
+    completed_trials: list[dict],
+    output_dir: Path,
+    base_config_path: str,
+) -> None:
+    """Save the three aggregate reports, with no per-trial directories."""
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    ranked_trials = sorted(
+        completed_trials,
+        key=lambda row: row.get("best_ndcg_10", float("-inf")),
+        reverse=True,
+    )
+
+    summary_fields = [
+        "trial_id",
+        "learning_rate",
+        "weight_decay",
+        "mask_probability",
+        "batch_size",
+        "best_epoch",
+        "best_ndcg_10",
+        "HR@5",
+        "HR@10",
+        "NDCG@5",
+        "NDCG@10",
+        "completed_epochs",
+        "total_training_time_seconds",
+        "average_epoch_time_seconds",
+        "status",
+    ]
+
+    summary_rows = [
+        {key: trial.get(key) for key in summary_fields}
+        for trial in ranked_trials
+    ]
+
+    write_csv(
+        summary_rows,
+        output_dir / "search_summary.csv",
+    )
+
+    config_fields = [
+        "trial_id",
+        "learning_rate",
+        "weight_decay",
+        "mask_probability",
+        "batch_size",
+        "best_epoch",
+        "best_ndcg_10",
+        "status",
+    ]
+
+    config_rows = [
+        {key: trial.get(key) for key in config_fields}
+        for trial in ranked_trials
+    ]
+
+    write_csv(
+        config_rows,
+        output_dir / "config_summary.csv",
+    )
+
+    report = {
+        "model": "BERT4Rec",
+        "dataset": "MovieLens-1M",
+        "base_config": base_config_path,
+        "search_space": SEARCH_SPACE,
+        "total_possible_trials": len(build_trials()),
+        "completed_trials": len(completed_trials),
+        "successful_trials": sum(
+            trial.get("status") == "completed"
+            for trial in completed_trials
+        ),
+        "failed_trials": sum(
+            trial.get("status") == "failed"
+            for trial in completed_trials
+        ),
+        "ranking_metric": "validation NDCG@10",
+        "updated_at": datetime.now().isoformat(),
+        "trials": completed_trials,
+        "ranked_trials": ranked_trials,
+        "best_trial": ranked_trials[0] if ranked_trials else None,
+    }
+
+    write_json(
+        report,
+        output_dir / "grid_search_report.json",
     )
 
 
-def finite_number(value: Any) -> bool:
-    try:
-        return math.isfinite(float(value))
-    except (TypeError, ValueError, OverflowError):
-        return False
+def run_search(
+    config_path: str,
+    output_dir: Path,
+    *,
+    restart: bool = False,
+) -> None:
+    """Run the grid search, resuming completed trials unless restarted."""
 
+    base_config = load_config(config_path)
+    trials = build_trials()
 
-def json_safe(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {str(k): json_safe(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [json_safe(v) for v in value]
-    if value is None or isinstance(value, (str, bool, int)):
-        return value
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if hasattr(value, "item"):
+    report_path = output_dir / "grid_search_report.json"
+
+    completed_trials: list[dict] = []
+
+    if report_path.exists() and not restart:
         try:
-            return json_safe(value.item())
-        except (ValueError, TypeError):
-            pass
-    if isinstance(value, Path):
-        return str(value)
-    return str(value)
+            with report_path.open("r", encoding="utf-8") as file:
+                previous_report = json.load(file)
 
+            previous_trials = previous_report.get("trials", [])
 
-def write_outputs(output_dir: Path, trials: list[dict[str, Any]],
-                  started_at: str, completed: bool) -> None:
+            # Resume only completed trials with IDs in the current grid.
+            valid_ids = {
+                f"trial_{index:03d}"
+                for index in range(1, len(trials) + 1)
+            }
+
+            completed_trials = [
+                trial
+                for trial in previous_trials
+                if (
+                    trial.get("trial_id") in valid_ids
+                    and trial.get("status") == "completed"
+                )
+            ]
+
+            logger.info(
+                "Resuming search: %d completed trials found.",
+                len(completed_trials),
+            )
+
+        except (json.JSONDecodeError, OSError) as error:
+            logger.warning(
+                "Could not read previous report (%s). Starting fresh.",
+                error,
+            )
+            completed_trials = []
+
+    completed_ids = {
+        trial["trial_id"]
+        for trial in completed_trials
+    }
+
     output_dir.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(trials).to_csv(output_dir / "search_summary.csv", index=False)
+
+    logger.info("Base configuration: %s", config_path)
+    logger.info("Output directory: %s", output_dir)
+    logger.info("Total grid combinations: %d", len(trials))
+    logger.info("Completed trials to skip: %d", len(completed_ids))
+
+    for index, parameters in enumerate(trials, start=1):
+        trial_id = f"trial_{index:03d}"
+
+        if trial_id in completed_ids:
+            logger.info(
+                "[%d/%d] Skipping %s; already completed.",
+                index,
+                len(trials),
+                trial_id,
+            )
+            continue
+
+        logger.info(
+            "[%d/%d] Starting %s with parameters: %s",
+            index,
+            len(trials),
+            trial_id,
+            parameters,
+        )
+
+        trial_config = deepcopy(base_config)
+        training_config = trial_config["training"]
+
+        # Apply this trial's hyperparameters.
+        training_config["learning_rate"] = parameters["learning_rate"]
+        training_config["weight_decay"] = parameters["weight_decay"]
+        training_config["mask_probability"] = parameters["mask_probability"]
+        training_config["batch_size"] = parameters["batch_size"]
+
+        start_time = time.perf_counter()
+
+        try:
+            # Crucially, this writes no trial-specific artifacts.
+            result = train_bert4rec(
+                trial_config,
+                save_artifacts=False,
+            )
+
+            elapsed_seconds = time.perf_counter() - start_time
+            history = result.get("training_history", [])
+
+            best_epoch = result.get("best_epoch", 0)
+
+            best_record = (
+                history[best_epoch - 1]
+                if best_epoch > 0 and best_epoch <= len(history)
+                else {}
+            )
+
+            # The trainer's best NDCG@10 and the best history row should
+            # agree; use the returned metric as the primary value.
+            best_ndcg10 = result.get(
+                "best_ndcg_10",
+                best_record.get("NDCG@10"),
+            )
+
+            trial_result = {
+                "trial_id": trial_id,
+                **parameters,
+                "best_epoch": best_epoch,
+                "best_ndcg_10": best_ndcg10,
+                "HR@5": best_record.get("HR@5"),
+                "HR@10": best_record.get("HR@10"),
+                "NDCG@5": best_record.get("NDCG@5"),
+                "NDCG@10": best_record.get("NDCG@10"),
+                "completed_epochs": len(history),
+                "total_training_time_seconds": elapsed_seconds,
+                "average_epoch_time_seconds": (
+                    elapsed_seconds / len(history)
+                    if history
+                    else None
+                ),
+                "status": "completed",
+            }
+
+            completed_trials.append(trial_result)
+
+            logger.info(
+                "%s completed | best NDCG@10=%.5f | epoch=%d | "
+                "time=%.1f minutes",
+                trial_id,
+                best_ndcg10 if best_ndcg10 is not None else float("nan"),
+                best_epoch,
+                elapsed_seconds / 60.0,
+            )
+
+        except Exception as error:
+            elapsed_seconds = time.perf_counter() - start_time
+
+            logger.exception("%s failed.", trial_id)
+
+            # Save a failed-trial record so the issue is visible.
+            # Failed trials are intentionally retried on the next run.
+            failed_trial = {
+                "trial_id": trial_id,
+                **parameters,
+                "best_epoch": None,
+                "best_ndcg_10": None,
+                "HR@5": None,
+                "HR@10": None,
+                "NDCG@5": None,
+                "NDCG@10": None,
+                "completed_epochs": 0,
+                "total_training_time_seconds": elapsed_seconds,
+                "average_epoch_time_seconds": None,
+                "status": "failed",
+                "error": str(error),
+            }
+
+            # Keep the failure in the report but replace it if the trial
+            # succeeds on a later resume.
+            completed_trials = [
+                trial
+                for trial in completed_trials
+                if trial.get("trial_id") != trial_id
+            ]
+            completed_trials.append(failed_trial)
+
+        # Persist progress after each trial so interruption loses
+        # at most the currently running trial.
+        save_reports(
+            completed_trials,
+            output_dir,
+            config_path,
+        )
+
+    save_reports(
+        completed_trials,
+        output_dir,
+        config_path,
+    )
 
     successful = [
-        t for t in trials
-        if t.get("status") == "SUCCESS" and finite_number(t.get("best_validation_ndcg10"))
+        trial
+        for trial in completed_trials
+        if trial.get("status") == "completed"
     ]
-    successful.sort(key=lambda t: float(t["best_validation_ndcg10"]), reverse=True)
-    report = {
-        "experiment": "BERT4Rec hyperparameter search",
-        "started_at": started_at,
-        "updated_at": datetime.now().astimezone().isoformat(),
-        "completed": completed,
-        "selection_metric": "validation NDCG@10",
-        "total_trials_planned": math.prod(len(v) for v in SEARCH_SPACE.values()),
-        "trials_recorded": len(trials),
-        "successful_trials": sum(t.get("status") == "SUCCESS" for t in trials),
-        "failed_trials": sum(t.get("status") == "FAILED" for t in trials),
-        "search_space": SEARCH_SPACE,
-        "best_trial_overall": successful[0] if successful else None,
-        "trials": trials,
-    }
-    with (output_dir / "grid_search_report.json").open("w", encoding="utf-8") as f:
-        json.dump(json_safe(report), f, indent=2, allow_nan=False)
-        f.write("\n")
-    LOGGER.info("Updated %s", output_dir / "search_summary.csv")
-    LOGGER.info("Updated %s", output_dir / "grid_search_report.json")
 
-
-def load_config(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as f:
-        config = yaml.safe_load(f)
-    if not isinstance(config, dict):
-        raise ValueError(f"Expected a YAML mapping in {path}")
-    for key in ("data", "model", "training", "output"):
-        if not isinstance(config.get(key), dict):
-            raise ValueError(f"Base config must contain a '{key}' mapping")
-    return config
-
-
-def trial_name(params: dict[str, Any]) -> str:
-    return (
-        f"bert4rec_lr{params['learning_rate']:g}"
-        f"_wd{params['weight_decay']:g}"
-        f"_mask{params['mask_probability']:g}"
-        f"_bs{params['batch_size']}"
-    ).replace(".", "p")
-
-
-def best_history_row(history: Any) -> dict[str, Any]:
-    if not isinstance(history, list) or not history:
-        raise ValueError("Trainer did not return a non-empty training_history list")
-    valid = [r for r in history if isinstance(r, dict) and finite_number(r.get("NDCG@10"))]
-    if not valid:
-        raise ValueError("No finite validation NDCG@10 was found in training history")
-    return max(valid, key=lambda r: float(r["NDCG@10"]))
-
-
-def run_search(config_path: Path, max_epochs: int | None = None,
-               limit_trials: int | None = None) -> int:
-    config_path = config_path.expanduser().resolve()
-    if not config_path.is_file():
-        raise FileNotFoundError(f"Base configuration not found: {config_path}")
-    base_config = load_config(config_path)
-
-    output_root = PROJECT_ROOT / "results" / "bert4rec_grid_search"
-    checkpoint_root = PROJECT_ROOT / "checkpoints" / "bert4rec_grid_search"
-    config_root = output_root / "trial_configs"
-    output_root.mkdir(parents=True, exist_ok=True)
-
-    keys = list(SEARCH_SPACE)
-    combinations = [dict(zip(keys, values)) for values in itertools.product(*(SEARCH_SPACE[k] for k in keys))]
-    if limit_trials is not None:
-        if limit_trials < 1:
-            raise ValueError("--limit-trials must be at least 1")
-        combinations = combinations[:limit_trials]
-
-    started_at = datetime.now().astimezone().isoformat()
-    trials: list[dict[str, Any]] = []
-    LOGGER.info("Project root: %s", PROJECT_ROOT)
-    LOGGER.info("Base config: %s", config_path)
-    LOGGER.info("Planned trials this run: %d", len(combinations))
-    LOGGER.info("Selection metric: validation NDCG@10; test set is not evaluated")
-    write_outputs(output_root, trials, started_at, completed=False)
-
-    for number, params in enumerate(combinations, start=1):
-        name = trial_name(params)
-        trial_results = output_root / name
-        trial_checkpoints = checkpoint_root / name
-        trial_results.mkdir(parents=True, exist_ok=True)
-        trial_checkpoints.mkdir(parents=True, exist_ok=True)
-
-        config = copy.deepcopy(base_config)
-        config["training"].update(params)
-        if max_epochs is not None:
-            config["training"]["num_epochs"] = max_epochs
-        config["output"].update({
-            "experiment_name": name,
-            "results_dir": str(trial_results),
-            "checkpoint_dir": str(trial_checkpoints),
-            "best_checkpoint_name": f"{name}_best.pt",
-        })
-        config["experiment_name"] = name
-
-        config_path_for_trial = config_root / f"{name}.yaml"
-        config_path_for_trial.parent.mkdir(parents=True, exist_ok=True)
-        with config_path_for_trial.open("w", encoding="utf-8") as f:
-            yaml.safe_dump(config, f, sort_keys=False)
-
-        record: dict[str, Any] = {
-            "trial_number": number,
-            "experiment_name": name,
-            **params,
-            "num_epochs": config["training"]["num_epochs"],
-            "seed": config.get("seed", 42),
-            "config_path": str(config_path_for_trial),
-            "results_dir": str(trial_results),
-            "checkpoint_dir": str(trial_checkpoints),
-            "status": "RUNNING",
-            "best_validation_ndcg10": None,
-            "best_epoch": None,
-            "best_validation_metrics": {},
-            "error": None,
-        }
-        trials.append(record)
-        write_outputs(output_root, trials, started_at, completed=False)
-        LOGGER.info("=" * 78)
-        LOGGER.info("Trial %d/%d: %s | params=%s", number, len(combinations), name, params)
-
-        try:
-            # The repository trainer accepts a YAML path (not a dict).
-            trainer_result = train_bert4rec(str(config_path_for_trial))
-            row = best_history_row(trainer_result.get("training_history"))
-            record["best_validation_ndcg10"] = float(row["NDCG@10"])
-            record["best_epoch"] = int(row["epoch"])
-            record["best_validation_metrics"] = {
-                key: row.get(key)
-                for key in ("HR@5", "HR@10", "NDCG@5", "NDCG@10", "loss", "epoch_time_seconds")
-                if key in row
-            }
-            record["best_checkpoint_path"] = trainer_result.get("best_model_path")
-            record["training_history_path"] = str(trial_results / "training_history.csv")
-            record["run_summary_path"] = str(trial_results / "run_summary.json")
-            record["status"] = "SUCCESS"
-            LOGGER.info("Trial complete: best val NDCG@10=%.5f at epoch %s",
-                        record["best_validation_ndcg10"], record["best_epoch"])
-        except Exception as exc:
-            LOGGER.exception("Trial failed: %s", name)
-            record["status"] = "FAILED"
-            record["error"] = f"{type(exc).__name__}: {exc}"
-        finally:
-            write_outputs(output_root, trials, started_at, completed=False)
-
-    write_outputs(output_root, trials, started_at, completed=True)
-    successful = [t for t in trials if t.get("status") == "SUCCESS" and finite_number(t.get("best_validation_ndcg10"))]
-    successful.sort(key=lambda t: float(t["best_validation_ndcg10"]), reverse=True)
-    LOGGER.info("=" * 78)
-    LOGGER.info("Search complete: %d successful / %d attempted", len(successful), len(trials))
-    LOGGER.info("Summary CSV: %s", output_root / "search_summary.csv")
-    LOGGER.info("Summary JSON: %s", output_root / "grid_search_report.json")
     if successful:
-        LOGGER.info("Best trial: %s (validation NDCG@10=%.5f)",
-                    successful[0]["experiment_name"], successful[0]["best_validation_ndcg10"])
-    return 0 if successful else 1
+        best_trial = max(
+            successful,
+            key=lambda trial: trial["best_ndcg_10"],
+        )
+
+        logger.info("Grid search finished.")
+        logger.info("Successful trials: %d/%d", len(successful), len(trials))
+        logger.info("Best trial: %s", best_trial["trial_id"])
+        logger.info("Best parameters: %s", {
+            key: best_trial[key]
+            for key in SEARCH_SPACE
+        })
+        logger.info(
+            "Best validation NDCG@10: %.5f",
+            best_trial["best_ndcg_10"],
+        )
+    else:
+        logger.warning(
+            "No successful trials. Check the error logs and report."
+        )
+
+    logger.info("Aggregate reports saved to: %s", output_dir)
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run a BERT4Rec hyperparameter grid search.")
-    parser.add_argument("--config", type=Path, default=Path("configs/bert4rec_tuned.yaml"),
-                        help="Base BERT4Rec YAML config (default: configs/bert4rec_tuned.yaml).")
-    parser.add_argument("--epochs", type=int, default=None,
-                        help="Override epoch count for every trial; default uses the base config.")
-    parser.add_argument("--limit-trials", type=int, default=None,
-                        help="Run only the first N combinations (useful for a smoke test).")
-    return parser.parse_args()
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Run a compact BERT4Rec hyperparameter grid search."
+    )
 
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="configs/bert4rec_tuned.yaml",
+        help="Path to the base BERT4Rec YAML configuration.",
+    )
 
-def main() -> int:
-    configure_logging()
-    args = parse_args()
-    return run_search(args.config, max_epochs=args.epochs, limit_trials=args.limit_trials)
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="results/bert4rec_grid_search",
+        help="Directory for aggregate search reports.",
+    )
+
+    parser.add_argument(
+        "--restart",
+        action="store_true",
+        help="Discard previous search progress and start fresh.",
+    )
+
+    args = parser.parse_args()
+
+    setup_logging()
+
+    run_search(
+        config_path=args.config,
+        output_dir=Path(args.output_dir),
+        restart=args.restart,
+    )
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

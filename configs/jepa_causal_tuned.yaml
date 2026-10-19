@@ -17,7 +17,7 @@ data:
 model:
   vocab_size: 3418
   max_seq_len: 200
-  hidden_dim: 256
+  hidden_dim: 384
   num_layers: 4
   num_heads: 8
   feed_forward_dim: 1024
@@ -27,18 +27,18 @@ model:
 
 training:
   batch_size: 64             # windows per step (~4-5k supervised targets)
-  learning_rate: 0.001
-  weight_decay: 0.05
+  learning_rate: 0.0005
+  weight_decay: 0.01
   num_epochs: 150
   patience: 20
   window_stride: 100         # windows start every N items (all ML-1M sequences fit in one)
-  lr_schedule: "constant"    # "constant" or "cosine"
-  warmup_epochs: 5           # linear warmup length, in epochs 
+  lr_schedule: "cosine"    # "constant" or "cosine"
+  warmup_epochs: 0           # linear warmup length, in epochs 
   min_lr_ratio: 0.0          # cosine floor as a fraction of learning_rate
   selection_window: 1        # pick best epoch by mean NDCG@10 of the last N epochs (1 = raw)
   ema_decay: 0.996
   mixed_precision: true
-  dropout: 0.3
+  dropout: 0.2
   amp_dtype: "bfloat16"
   compile: false             # enable after the first run checks out
 
