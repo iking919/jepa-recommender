@@ -1,0 +1,78 @@
+{
+  "model": "JEPA (causal one-pass)",
+  "experiment_name": "jepa_lr_schedule-constant_learning_rate-0p0005_weight_decay-0p01_warmup_epochs-0_ema_decay-0p996_dropout-0p2_window_stride-50_hidden_dim-256_num_layers-4_num_heads-8_feed_forward_dim-1024_batch_size-512_max_seq_len-200_seed-42",
+  "dataset": "MovieLens-1M",
+  "run_start": "2026-10-18T18:11:02.507479",
+  "run_end": "2026-10-18T18:16:39.980547",
+  "device": "cuda",
+  "seed": 42,
+  "configured_epochs": 150,
+  "completed_epochs": 140,
+  "best_epoch": 120,
+  "best_metrics": {
+    "HR@5": 0.16225165128707886,
+    "HR@10": 0.20827814936637878,
+    "NDCG@5": 0.11628939211368561,
+    "NDCG@10": 0.1311710923910141
+  },
+  "best_epoch_loss": 0.8283118406931559,
+  "best_selection_score": 0.1311710923910141,
+  "timing": {
+    "total_training_time_seconds": 337.47305564116687,
+    "total_training_time_minutes": 5.624550927352781,
+    "total_train_only_seconds": 95.23380329925567,
+    "time_to_best_epoch_seconds": 288.5773566737771,
+    "average_epoch_time_seconds": 2.4105218260083348,
+    "average_train_time_seconds": 0.6802414521375405,
+    "average_validation_time_seconds": 1.7238947548288186
+  },
+  "hardware": {
+    "device": "cuda",
+    "gpu": "NVIDIA A100 80GB PCIe",
+    "peak_gpu_memory_gb": 5.503255844116211
+  },
+  "model_parameters": {
+    "total": 5485824,
+    "trainable": 4610816
+  },
+  "training_configuration": {
+    "batch_size": 512,
+    "learning_rate": 0.0005,
+    "weight_decay": 0.01,
+    "mixed_precision": true,
+    "amp_dtype": "bfloat16",
+    "compile": false,
+    "ema_decay": 0.996,
+    "patience": 20,
+    "window_stride": 50,
+    "lr_schedule": "constant",
+    "warmup_epochs": 0,
+    "min_lr_ratio": 0.0,
+    "selection_window": 1,
+    "save_checkpoint": false
+  },
+  "model_configuration": {
+    "vocab_size": 3418,
+    "max_seq_len": 200,
+    "hidden_dim": 256,
+    "num_layers": 4,
+    "num_heads": 8,
+    "feed_forward_dim": 1024,
+    "dropout": 0.2,
+    "pad_token_id": 0,
+    "causal": true
+  },
+  "data": {
+    "sequences": 6040,
+    "training_windows": 6040,
+    "supervised_targets_per_epoch": 642719,
+    "training_batches_per_epoch": 12,
+    "validation_samples": 6040
+  },
+  "files": {
+    "checkpoint": null,
+    "epoch_history": "/home/kingi/jepa-recommender/jepa_unified_search/grid_search_report.json/jepa_lr_schedule-constant_learning_rate-0p0005_weight_decay-0p01_warmup_epochs-0_ema_decay-0p996_dropout-0p2_window_stride-50_hidden_dim-256_num_layers-4_num_heads-8_feed_forward_dim-1024_batch_size-512_max_seq_len-200_seed-42/training_history.csv",
+    "run_summary": "/home/kingi/jepa-recommender/jepa_unified_search/grid_search_report.json/jepa_lr_schedule-constant_learning_rate-0p0005_weight_decay-0p01_warmup_epochs-0_ema_decay-0p996_dropout-0p2_window_stride-50_hidden_dim-256_num_layers-4_num_heads-8_feed_forward_dim-1024_batch_size-512_max_seq_len-200_seed-42/run_summary.json",
+    "config": "/home/kingi/jepa-recommender/jepa_unified_search/grid_search_report.json/jepa_lr_schedule-constant_learning_rate-0p0005_weight_decay-0p01_warmup_epochs-0_ema_decay-0p996_dropout-0p2_window_stride-50_hidden_dim-256_num_layers-4_num_heads-8_feed_forward_dim-1024_batch_size-512_max_seq_len-200_seed-42/config.yaml"
+  }
+}
