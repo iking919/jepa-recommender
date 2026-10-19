@@ -1,7 +1,7 @@
 {
   "experiment": "Causal one-pass JEPA hyperparameter search",
-  "started_at": "2026-10-13T21:49:11.290931-04:00",
-  "updated_at": "2026-10-13T21:49:11.297229-04:00",
+  "started_at": "2026-10-18T17:31:26.327680-04:00",
+  "updated_at": "2026-10-18T17:31:26.337450-04:00",
   "completed": false,
   "total_trials_planned": 144,
   "trials_recorded": 0,
