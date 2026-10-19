@@ -1,4 +1,4 @@
-"""Unified, resumable hyperparameter search for causal one-pass JEPA.
+"""Resumable hyperparameter search for causal one-pass JEPA.
 
 Place this file in the repository's scripts/ directory. It assumes the project
 exposes ``train(config: dict)`` from ``src.training.train_jepa_causal`` and that
@@ -6,10 +6,8 @@ training reads ``training.window_stride`` and ``model.hidden_dim``. Verify these
 field names against your actual config/trainer before running a real search.
 
 Example:
-    python -m scripts.run_jepa_hyperparameter_search_unified \
-        --config configs/jepa_tuned.yaml --dry-run
-    python -m scripts.run_jepa_hyperparameter_search_unified \
-        --config configs/jepa_tuned.yaml
+    python -m scripts.run_jepa_hyperparameter_search \
+        --config configs/jepa_tuned_causal.yaml
 
 The search is a Cartesian grid. Keep the default grid small; uncomment or add
 values in SEARCH_SPACE deliberately because the number of trials multiplies.
@@ -36,7 +34,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-LOGGER = logging.getLogger("jepa_unified_search")
+LOGGER = logging.getLogger("jepa_hyperparameter_search")
 
 # ---------------------------------------------------------------------------
 # SEARCH BOX: edit this section to choose what gets tuned.
@@ -232,7 +230,7 @@ def save_report(out_dir: Path, trials: list[dict[str, Any]], space: dict[str, li
     ranked = aggregate(trials)
     pd.DataFrame([{k: v for k, v in r.items() if k != "seeds"} for r in ranked]).to_csv(
         out_dir / "config_summary.csv", index=False)
-    report = {"experiment": "Unified causal one-pass JEPA hyperparameter search",
+    report = {"experiment": "causal one-pass JEPA hyperparameter search",
               "started_at": started, "updated_at": datetime.now().astimezone().isoformat(),
               "completed": completed, "total_trials_planned": planned,
               "trials_recorded": len(trials),
@@ -359,9 +357,9 @@ def run(args: argparse.Namespace) -> int:
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Unified hyperparameter search for causal one-pass JEPA")
+    p = argparse.ArgumentParser(description="hyperparameter search for causal one-pass JEPA")
     p.add_argument("--config", type=Path, default=Path("configs/jepa_tuned.yaml"))
-    p.add_argument("--output-dir", type=Path, default=Path("results/jepa_unified_search"))
+    p.add_argument("--output-dir", type=Path, default=Path("results/jepa_hyperparameter_search"))
     p.add_argument("--seeds", nargs="+", type=int, default=[42])
     p.add_argument("--lr", nargs="+", type=float, default=None)
     p.add_argument("--ema", nargs="+", type=float, default=None)
