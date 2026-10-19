@@ -300,15 +300,18 @@ The search is launched using each baseline configuration:
 
 BERT4Rec:
 ```bash
-python scripts/run_bert4rec_hyperparameter_search.py \
-  --config configs/bert4rec_baseline.yaml
+python -m scripts.run_bert4rec_hyperparameter_search \
+    --config configs/bert4rec_tuned.yaml \
+    --output-dir results/bert4rec_grid_search
 ```
 
 JEPA Causal:
 
 ```bash
-python scripts/run_jepa_hyperparameter_search.py \
-  --config configs/jepa_causal_baseline.yaml
+python -m scripts.run_jepa_hyperparameter_search \
+  --config configs/jepa_causal_tuned.yaml \
+  --output-dir results/jepa_grid_search \
+  --allow-existing
 ```
 
 The baseline configuration provides the starting architecture and training setup. The search script generates trial-specific configurations, applies the candidate optimization settings, and records the resulting validation performance.

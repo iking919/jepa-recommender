@@ -1,10 +1,14 @@
+
 """
 Training pipeline for BERT4Rec.
 
-The module contains reusable training logic and a command-line entry point.
-Experiment artifacts are split into:
-    checkpoints/<experiment>/  -> model checkpoints only
-    results/<experiment>/      -> histories and run summaries
+Normal training:
+    checkpoints/<experiment>/  -> best model checkpoint
+    results/<experiment>/      -> training history and run summary
+
+Hyperparameter search:
+    Call train_bert4rec(config_dict, save_artifacts=False) to train without
+    writing per-trial checkpoints, histories, or run summaries.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ import csv
 import json
 import logging
 import time
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 
@@ -78,10 +83,34 @@ def _resolve_device(config: dict) -> torch.device:
     )
 
 
-def train_bert4rec(config_path: str) -> dict:
-    """Train BERT4Rec using the supplied YAML configuration."""
+def train_bert4rec(
+    config_path: str | Path | dict,
+    *,
+    save_artifacts: bool = True,
+) -> dict:
+    """
+    Train BERT4Rec using a YAML path or an in-memory configuration.
 
-    config = load_config(config_path)
+    Args:
+        config_path:
+            Path to a YAML file, or a complete configuration dictionary.
+        save_artifacts:
+            True for normal training. Saves checkpoints, histories, and
+            run summaries.
+            False for hyperparameter search. Saves none of those artifacts;
+            the caller is responsible for saving aggregate search reports.
+
+    Returns:
+        A dictionary containing the best validation NDCG@10, best epoch,
+        best checkpoint path (or None), results path (or None), and
+        per-epoch training history.
+    """
+
+    if isinstance(config_path, dict):
+        config = deepcopy(config_path)
+    else:
+        config = load_config(str(config_path))
+
     set_seed(config.get("seed", 42))
 
     device = _resolve_device(config)
@@ -129,6 +158,7 @@ def train_bert4rec(config_path: str) -> dict:
     )
 
     num_workers = training_config.get("num_workers", 0)
+
     loader_kwargs = {
         "batch_size": training_config["batch_size"],
         "shuffle": True,
@@ -170,11 +200,15 @@ def train_bert4rec(config_path: str) -> dict:
         "lr": training_config["learning_rate"],
         "weight_decay": training_config["weight_decay"],
     }
-    # Fused AdamW is a numerically equivalent CUDA implementation when
-    # supported by the installed PyTorch build.
+
+    # Use fused AdamW when supported by the installed PyTorch build.
     if device.type == "cuda" and training_config.get("fused_adamw", True):
         try:
-            optimizer = AdamW(model.parameters(), **optimizer_kwargs, fused=True)
+            optimizer = AdamW(
+                model.parameters(),
+                **optimizer_kwargs,
+                fused=True,
+            )
         except (TypeError, RuntimeError):
             optimizer = AdamW(model.parameters(), **optimizer_kwargs)
     else:
@@ -185,18 +219,25 @@ def train_bert4rec(config_path: str) -> dict:
         and training_config.get("mixed_precision", "bf16") == "bf16"
         and torch.cuda.is_bf16_supported()
     )
+
     use_fp16 = (
         device.type == "cuda"
         and training_config.get("mixed_precision", "bf16") == "fp16"
         and not torch.cuda.is_bf16_supported()
     )
+
     use_amp = use_bf16 or use_fp16
     amp_dtype = torch.bfloat16 if use_bf16 else torch.float16
-    logger.info("Mixed precision: %s", "bf16" if use_bf16 else "fp16" if use_fp16 else "off")
+
+    logger.info(
+        "Mixed precision: %s",
+        "bf16" if use_bf16 else "fp16" if use_fp16 else "off",
+    )
 
     criterion = nn.CrossEntropyLoss(ignore_index=-100)
 
     scheduler = None
+
     if training_config.get("use_scheduler", False):
         scheduler_type = training_config.get(
             "scheduler_type",
@@ -215,31 +256,38 @@ def train_bert4rec(config_path: str) -> dict:
         )
 
     experiment_name = output_config["experiment_name"]
-    checkpoint_dir = Path(output_config["checkpoint_dir"])
-    results_dir = Path(output_config["results_dir"])
 
-    checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    results_dir.mkdir(parents=True, exist_ok=True)
+    # Create artifact paths only when artifact saving is enabled.
+    if save_artifacts:
+        checkpoint_dir = Path(output_config["checkpoint_dir"])
+        results_dir = Path(output_config["results_dir"])
 
-    best_checkpoint_path = (
-        checkpoint_dir / output_config["best_checkpoint_name"]
-    )
-    history_path = results_dir / "training_history.csv"
-    summary_path = results_dir / "run_summary.json"
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        results_dir.mkdir(parents=True, exist_ok=True)
+
+        best_checkpoint_path = (
+            checkpoint_dir / output_config["best_checkpoint_name"]
+        )
+        history_path = results_dir / "training_history.csv"
+        summary_path = results_dir / "run_summary.json"
+    else:
+        best_checkpoint_path = None
+        history_path = None
+        summary_path = None
 
     best_ndcg10 = float("-inf")
     best_epoch = 0
-    training_history = []
+    training_history: list[dict] = []
 
     run_start = datetime.now().isoformat()
     total_start = time.perf_counter()
-
     num_epochs = training_config["num_epochs"]
 
     logger.info(
-        "Starting %s training for %d epochs.",
+        "Starting %s training for %d epochs. Artifact saving: %s",
         experiment_name,
         num_epochs,
+        save_artifacts,
     )
 
     for epoch in range(1, num_epochs + 1):
@@ -261,6 +309,7 @@ def train_bert4rec(config_path: str) -> dict:
             optimizer.zero_grad(set_to_none=True)
 
             supervised = labels.ne(-100)
+
             if not supervised.any():
                 continue
 
@@ -269,7 +318,7 @@ def train_bert4rec(config_path: str) -> dict:
                 dtype=amp_dtype,
                 enabled=use_amp,
             ):
-                # Project only masked positions, not all 200 positions.
+                # Project only masked positions, not all sequence positions.
                 logits = model(input_ids, target_mask=supervised)
                 loss = criterion(logits.float(), labels[supervised])
 
@@ -311,8 +360,11 @@ def train_bert4rec(config_path: str) -> dict:
             "NDCG@10": val_metrics["NDCG@10"],
             "epoch_time_seconds": epoch_time,
         }
+
         training_history.append(record)
-        _save_csv(training_history, history_path)
+
+        if save_artifacts:
+            _save_csv(training_history, history_path)
 
         logger.info(
             "Epoch %02d/%02d | loss=%.4f | HR@5=%.4f | HR@10=%.4f | "
@@ -332,26 +384,39 @@ def train_bert4rec(config_path: str) -> dict:
             best_ndcg10 = record["NDCG@10"]
             best_epoch = epoch
 
-            checkpoint_state = {
-                "epoch": epoch,
-                "model_state_dict": model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "validation_metrics": val_metrics,
-                "training_history": training_history,
-                "config": config,
-            }
+            if save_artifacts:
+                checkpoint_state = {
+                    "epoch": epoch,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "validation_metrics": val_metrics,
+                    "training_history": training_history,
+                    "config": config,
+                }
 
-            if scheduler is not None:
-                checkpoint_state["scheduler_state_dict"] = scheduler.state_dict()
+                if scheduler is not None:
+                    checkpoint_state["scheduler_state_dict"] = (
+                        scheduler.state_dict()
+                    )
 
-            save_checkpoint(checkpoint_state, best_checkpoint_path)
-            logger.info(
-                "Saved new best checkpoint: %s",
-                best_checkpoint_path,
-            )
+                save_checkpoint(
+                    checkpoint_state,
+                    best_checkpoint_path,
+                )
+
+                logger.info(
+                    "Saved new best checkpoint: %s",
+                    best_checkpoint_path,
+                )
 
     total_time = time.perf_counter() - total_start
     run_end = datetime.now().isoformat()
+
+    best_record = (
+        training_history[best_epoch - 1]
+        if best_epoch > 0
+        else {}
+    )
 
     summary = {
         "model": "BERT4Rec",
@@ -364,11 +429,7 @@ def train_bert4rec(config_path: str) -> dict:
         "configured_epochs": num_epochs,
         "completed_epochs": len(training_history),
         "best_epoch": best_epoch,
-        "best_validation_metrics": (
-            training_history[best_epoch - 1]
-            if best_epoch > 0
-            else {}
-        ),
+        "best_validation_metrics": best_record,
         "timing": {
             "total_training_time_seconds": total_time,
             "total_training_time_minutes": total_time / 60.0,
@@ -382,12 +443,21 @@ def train_bert4rec(config_path: str) -> dict:
             "trainable": trainable_parameters,
         },
         "files": {
-            "checkpoint": str(best_checkpoint_path),
-            "training_history": str(history_path),
+            "checkpoint": (
+                str(best_checkpoint_path)
+                if best_checkpoint_path is not None
+                else None
+            ),
+            "training_history": (
+                str(history_path)
+                if history_path is not None
+                else None
+            ),
         },
     }
 
-    _save_json(summary, summary_path)
+    if save_artifacts:
+        _save_json(summary, summary_path)
 
     logger.info(
         "Training complete. Best validation NDCG@10: %.4f at epoch %d.",
@@ -398,9 +468,18 @@ def train_bert4rec(config_path: str) -> dict:
     return {
         "best_ndcg_10": best_ndcg10,
         "best_epoch": best_epoch,
-        "best_model_path": str(best_checkpoint_path),
-        "results_path": str(results_dir),
+        "best_model_path": (
+            str(best_checkpoint_path)
+            if best_checkpoint_path is not None
+            else None
+        ),
+        "results_path": (
+            str(results_dir)
+            if save_artifacts
+            else None
+        ),
         "training_history": training_history,
+        "summary": summary,
     }
 
 
