@@ -303,6 +303,7 @@ BERT4Rec:
 python -m scripts.run_bert4rec_hyperparameter_search \
     --config configs/bert4rec_tuned.yaml \
     --output-dir results/bert4rec_grid_search
+    --allow-existing
 ```
 
 JEPA Causal:
