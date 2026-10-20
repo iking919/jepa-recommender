@@ -6,7 +6,7 @@
 # not tuned: an epoch now has ~100x fewer forward passes but also far fewer
 # optimizer steps, so expect to need more epochs than the prefix model.
 
-seed: 42
+seed: 123
 device: "cuda"
 
 data:

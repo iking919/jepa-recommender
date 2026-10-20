@@ -303,6 +303,7 @@ BERT4Rec:
 python -m scripts.run_bert4rec_hyperparameter_search \
     --config configs/bert4rec_tuned.yaml \
     --output-dir results/bert4rec_grid_search
+    --allow-existing
 ```
 
 JEPA Causal:
@@ -350,6 +351,38 @@ Use validation performance, such as validation NDCG@10, to compare candidate con
 The selected settings should then be recorded in `configs/bert4rec_tuned.yaml` and `configs/jepa_causal_tuned.yaml` respectively. Keep the baseline configuration unchanged so the original settings remain available for comparison.
 
 For reproducibility, retain the aggregate search results and the configuration for each trial. Report the final held-out test metrics only after selecting the configuration using validation data.
+
+## Cross-Seed Comparison
+
+Cross-seed experiments evaluate the stability and reproducibility of JEPA and BERT4Rec under different random seeds while keeping all other hyperparameters fixed. This helps determine whether observed performance differences are consistent or attributable to randomness during model initialization and training.
+
+The `scripts/run_cross_seed_comparison.py` script supports both models and generates the following reports in the specified output directory:
+
+- `seed_results.csv`: Individual results for each seed, including ranking metrics, best epoch, and training time.
+- `seed_summary.csv`: Aggregate statistics across successful runs, including the mean, median, standard deviation, minimum, and maximum for each metric.
+- `cross_seed_report.json`: Complete experiment metadata, individual run records, summary statistics, and run status.
+
+Experiments are ranked using the trainer-provided selection score, typically validation NDCG@10. Test performance, when available, should be reported separately rather than used for model selection.
+
+JEPA Causal
+
+```bash
+python -m scripts.run_cross_seed_comparison \
+  --config configs/jepa_causal_tuned.yaml \
+  --output-dir results/jepa_seed_search \
+  --allow-existing
+```
+
+BERT4Rec
+
+```bash
+python -m scripts.run_cross_seed_comparison \
+  --config configs/bert4rec_tuned.yaml \
+  --output-dir results/bert4rec_seed_search \
+  --allow-existing
+```
+
+By default, the script evaluates five seeds (`42`, `123`, `2024`, `7`, and `21`). Use `--seeds` to specify a different set. The original YAML configuration files remain unchanged, and successful runs can be resumed from existing reports.
 
 ## Evaluation
 
@@ -457,8 +490,7 @@ The following are the current held-out test results for the standard BERT4Rec an
 | JEPA | Baseline | 0.0728 | 0.1065 | 0.0491 | 0.0598 |
 | JEPA | Tuned | 0.1273 | 0.1801 | 0.0928 | 0.1098 |
 | JEPA Causal | Baseline | 0.1545 | 0.1935 | 0.1108 | 0.1234 |
-| JEPA Causal | Tuned | 0.1609 | 0.2081 | 0.1153 | 0.1306 |
-
+| JEPA Causal | Tuned | 0.1619 | 0.2127 | 0.1147 | 0.1311 |
 
 ## Research Status
 
