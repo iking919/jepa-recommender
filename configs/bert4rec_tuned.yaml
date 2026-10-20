@@ -2,7 +2,7 @@
 #
 # This configuration contains the selected tuned BERT4Rec experiment.
 
-seed: 42
+seed: 123
 device: "cuda"
 
 data:
