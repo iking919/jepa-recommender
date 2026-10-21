@@ -1,7 +1,7 @@
 """
 preprocess_ml1m.py
 
-Preprocesses the MovieLens-1M dataset for the JEPA Recommender project.
+Preprocesses the MovieLens-1M dataset for the Recommender project.
 
 This script orchestrates the preprocessing pipeline using reusable
 functions from src/data/.
@@ -18,8 +18,7 @@ Pipeline:
        Movies start at ID = 2
 7. Save shared intermediate preprocessing artifacts.
 8. Generate BERT4Rec-specific datasets.
-9. Generate JEPA-specific context-target pairs.
-10. Save model-specific datasets under data/processed/ml-1m/.
+9. Save model-specific datasets under data/processed/ml-1m/.
 
 Usage:
     python scripts/preprocess_ml1m.py
@@ -254,164 +253,6 @@ def generate_bert4rec_datasets(
         f"BERT4Rec dataset saved to: {bert_path}"
     )
 
-
-# ---------------------------------------------------------------------------
-# JEPA Dataset Generation
-# ---------------------------------------------------------------------------
-
-def generate_jepa_datasets(
-    df_split,
-    processed_dir,
-    max_seq_len=MAX_SEQ_LEN,
-):
-    """
-    Generate JEPA-specific context-target datasets.
-
-    Training pairs are generated from the training sequence:
-
-        context_sequence = interactions before position i
-        target_item      = interaction at position i
-    """
-
-    print(
-        "\n=== Step 7: Generating JEPA-Specific Datasets ==="
-    )
-
-    jepa_train_data = []
-
-    for _, row in df_split.iterrows():
-        user_id = row["user_id"]
-        sequence = row["train_sequence"]
-
-        if len(sequence) < 2:
-            continue
-
-        for index in range(1, len(sequence)):
-            context = sequence[:index][-max_seq_len:]
-            target = sequence[index]
-
-            jepa_train_data.append(
-                {
-                    "user_id": user_id,
-                    "context_sequence": context,
-                    "target_item": target,
-                }
-            )
-
-    jepa_train = pd.DataFrame(
-        jepa_train_data
-    )
-
-    # Validation:
-    # Predict the validation item using the complete training sequence.
-    jepa_val = df_split[
-        [
-            "user_id",
-            "train_sequence",
-            "validation_item",
-        ]
-    ].copy()
-
-    jepa_val.columns = [
-        "user_id",
-        "context_sequence",
-        "target_item",
-    ]
-
-    jepa_val["context_sequence"] = (
-        jepa_val["context_sequence"].apply(
-            lambda sequence: sequence[-max_seq_len:]
-        )
-    )
-
-    # Test:
-    # Predict the test item after observing the validation item.
-    jepa_test = df_split[
-        [
-            "user_id",
-            "train_sequence",
-            "validation_item",
-            "test_item",
-        ]
-    ].copy()
-
-    jepa_test["context_sequence"] = jepa_test.apply(
-        lambda row: (
-            list(row["train_sequence"])
-            + [row["validation_item"]]
-        )[-max_seq_len:],
-        axis=1,
-    )
-
-    jepa_test = jepa_test[
-        [
-            "user_id",
-            "context_sequence",
-            "test_item",
-        ]
-    ]
-
-    jepa_test.columns = [
-        "user_id",
-        "context_sequence",
-        "target_item",
-    ]
-
-    jepa_path = os.path.join(
-        processed_dir,
-        "ml-1m",
-        "jepa",
-    )
-
-    os.makedirs(
-        jepa_path,
-        exist_ok=True,
-    )
-
-    jepa_train.to_parquet(
-        os.path.join(
-            jepa_path,
-            "train_context_target.parquet",
-        ),
-        index=False,
-    )
-
-    jepa_val.to_parquet(
-        os.path.join(
-            jepa_path,
-            "validation.parquet",
-        ),
-        index=False,
-    )
-
-    jepa_test.to_parquet(
-        os.path.join(
-            jepa_path,
-            "test.parquet",
-        ),
-        index=False,
-    )
-
-    print(
-        f"JEPA training context-target pairs: "
-        f"{len(jepa_train):,}"
-    )
-
-    print(
-        f"JEPA validation users: "
-        f"{len(jepa_val):,}"
-    )
-
-    print(
-        f"JEPA test users: "
-        f"{len(jepa_test):,}"
-    )
-
-    print(
-        f"JEPA dataset saved to: {jepa_path}"
-    )
-
-
 # ---------------------------------------------------------------------------
 # Main Pipeline
 # ---------------------------------------------------------------------------
@@ -593,16 +434,6 @@ def preprocess_pipeline(
     # ------------------------------------------------------------------
 
     generate_bert4rec_datasets(
-        df_split,
-        processed_dir,
-        max_seq_len,
-    )
-
-    # ------------------------------------------------------------------
-    # Step 7: JEPA datasets.
-    # ------------------------------------------------------------------
-
-    generate_jepa_datasets(
         df_split,
         processed_dir,
         max_seq_len,

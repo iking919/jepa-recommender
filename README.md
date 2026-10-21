@@ -1,77 +1,36 @@
-# JEPA for Sequential Recommendation
+# Newman-Inspired Movie Ranking for Sequential Recommendation
 
-A research project investigating **Joint-Embedding Predictive Architectures (JEPA)** for sequential recommendation and comparing a JEPA-based approach with **BERT4Rec** on the MovieLens-1M dataset.
+A research project for **CSCI 6250: Frontiers of Network Science** at Rensselaer Polytechnic Institute.
 
-## Overview
+This project investigates whether a global movie ranking inferred from heterogeneous pairwise comparisons can improve personalized sequential recommendations produced by BERT4Rec. It builds on M. E. J. Newman's *Ranking with Multiple Types of Pairwise Comparisons* and extends the general idea of heterogeneous comparison-based ranking to movie recommendation.
 
-Sequential recommendation models learn from a user's interaction history to predict items they may interact with next. This project investigates whether a JEPA-style learning framework can support sequential recommendation by predicting future item representations rather than directly predicting item identities during representation learning.
+**Project status:** Experimental design and baseline preparation.
 
-The project compares two approaches:
+## Research Question
 
-- **BERT4Rec:** A bidirectional Transformer-based sequential recommendation model trained using a masked item prediction objective.
-- **JEPA:** A Joint-Embedding Predictive Architecture that learns to predict target representations from encoded user interaction contexts.
+Can a global movie ranking inferred from multiple types of pairwise comparisons improve the top-10 recommendation performance of BERT4Rec on MovieLens-1M?
 
-The repository also investigates a causal, one-pass JEPA training approach designed to reduce redundant computation across user interaction sequences.
+The primary hypothesis is that incorporating information from a global movie comparison network will improve NDCG@10 compared with BERT4Rec alone. HR@10 will be evaluated as a secondary ranking metric.
 
-The models are evaluated on MovieLens-1M using chronological recommendation tasks and ranking-based evaluation metrics.
+The project will also investigate whether any improvement is attributable to the pairwise-ranking method or can be explained by a simpler popularity-based reranking baseline.
 
-### Research Objectives
+## Background
 
-The primary objectives are to:
+Sequential recommendation models learn from a user's interaction history to predict items they may interact with next. BERT4Rec uses a bidirectional Transformer and masked item prediction to learn representations of user interaction sequences.
 
-1. Implement a modular JEPA-based sequential recommendation model.
-2. Establish BERT4Rec as a sequential recommendation baseline.
-3. Compare recommendation performance under a shared dataset and evaluation protocol.
-4. Examine the impact of model architecture and training configuration on recommendation performance.
-5. Investigate the effect of causal, one-pass training on JEPA training efficiency.
-6. Use hyperparameter search to identify promising optimization settings.
-7. Record training time, validation performance, and resource usage to support analysis of computational efficiency.
+Newman's ranking framework addresses a different problem: inferring relative rankings from pairwise comparisons that can belong to different interaction types. Rather than treating every comparison as equivalent, the method accounts for differences between types of interactions.
 
-## Models
+This project investigates whether a global ranking inferred from movie comparisons can provide complementary information to a personalized sequential recommendation model.
 
-### BERT4Rec
+## Research Objectives
 
-BERT4Rec is used as a sequential recommendation baseline. It applies a bidirectional Transformer to user interaction sequences and learns through masked item prediction.
-
-The model is trained to predict masked items from surrounding interaction context. During evaluation, it produces item-ranking scores for the held-out target item.
-
-The repository includes baseline and tuned configurations:
-
-- `bert4rec_baseline.yaml`
-- `bert4rec_tuned.yaml`
-
-### JEPA
-
-The JEPA-based model learns representations of user interaction histories and predicts target item representations in an embedding space.
-
-The architecture consists of:
-
-- **Context encoder:** Encodes a user's interaction history.
-- **Target encoder:** Produces target item representations.
-- **Predictor:** Predicts target representations from context representations.
-- **Exponential moving average (EMA):** Updates the target encoder using the context encoder's parameters.
-
-The target encoder provides target representations during training. At inference time, the model uses learned representations to rank candidate items.
-
-The standard JEPA implementation includes baseline and tuned configurations:
-
-- `jepa_baseline.yaml`
-- `jepa_tuned.yaml`
-
-### Causal JEPA
-
-The causal JEPA implementation uses a causal Transformer encoder and a one-pass training strategy. Rather than repeatedly encoding a separate prefix for each prediction target, the training pipeline processes user interaction sequences through a smaller number of windows and derives multiple supervised targets from those windows.
-
-This approach is intended to reduce redundant forward passes and training time while retaining a sequential prediction objective.
-
-The repository includes the following configurations:
-
-- `jepa_causal_baseline.yaml`
-- `jepa_causal_tuned.yaml`
-
-The causal baseline uses starting optimization settings before hyperparameter tuning. The tuned configuration uses the selected optimization settings from the search process.
-
-The causal implementation is evaluated separately from the standard JEPA implementation because the training strategies and model configurations differ. Comparisons should document these differences when interpreting performance and computational efficiency.
+1. Establish a reproducible BERT4Rec baseline using MovieLens-1M.
+2. Construct a movie comparison network using training-set ratings.
+3. Adapt Newman's multiple-comparison ranking approach to infer global movie scores.
+4. Integrate the global ranking with BERT4Rec recommendation scores.
+5. Compare the combined model with BERT4Rec alone and a popularity-based reranking baseline.
+6. Evaluate recommendation quality and computational overhead.
+7. Analyze the conditions under which global ranking information helps or hurts personalized recommendation.
 
 ## Dataset
 
@@ -85,427 +44,182 @@ The original dataset contains:
 | Users | 6,040 |
 | Movies | 3,706 |
 
-The project uses timestamped ratings to construct chronological user interaction sequences.
+The dataset provides user IDs, movie IDs, explicit ratings, and timestamps.
 
-### Preprocessing
+The existing BERT4Rec research pipeline filters movies with fewer than five interactions and constructs chronological user interaction sequences. This project will reuse the established preprocessing and split definitions to preserve comparability with the existing baseline.
 
-The experimental preprocessing pipeline includes:
+The processed data used in the current recommender experiments contains 6,040 users and 3,416 mapped movies. These counts will be verified against the artifacts used in the course-project baseline.
 
-1. Loading the original MovieLens-1M ratings.
-2. Sorting user interactions chronologically.
-3. Filtering movies with fewer than five interactions.
-4. Constructing user interaction sequences.
-5. Mapping movie IDs to contiguous model item IDs.
-6. Limiting sequence length to a maximum of 200.
-7. Creating chronological training, validation, and test splits.
-8. Preparing model-specific training examples for BERT4Rec and JEPA.
+Original dataset files and derived datasets will not be committed to the repository.
 
-The current processed dataset contains:
+## Experimental Design
 
-| Statistic | Value |
-|---|---:|
-| Users | 6,040 |
-| Mapped movies | 3,416 |
-| Vocabulary entries, including special tokens | 3,418 |
-| Maximum sequence length | 200 |
-| Training interactions | 648,759 |
+### 1. BERT4Rec Baseline
 
-Special token IDs are defined as follows:
+BERT4Rec serves as the primary recommendation baseline. It learns personalized rankings from user interaction sequences using masked item prediction.
 
-| Token | ID |
-|---|---:|
-| Padding (`PAD`) | 0 |
-| Mask (`MASK`) | 1 |
-| Movie items | 2 and above |
+The baseline will use the established tuned configuration and the same chronological training, validation, and test split definitions as the existing recommender research.
 
-BERT4Rec and JEPA use model-specific training examples derived from the shared chronological data. Refer to [`data/README.md`](data/README.md) for details.
+The baseline checkpoint and configuration will be recorded so that the experiment can be reproduced.
+
+### 2. Movie Comparison Network
+
+Movies will be represented as nodes. Pairwise comparisons will be derived from ratings assigned by the same user to different movies.
+
+When a user rates one movie higher than another, the higher-rated movie will be treated as the winner of that comparison. Equal-rated pairs will initially be excluded.
+
+The initial comparison types will be defined by absolute rating differences:
+
+- **Close comparisons:** rating differences of one star.
+- **Large-difference comparisons:** rating differences of two or more stars.
+
+These categories are a proposed adaptation for MovieLens-1M and will be documented as such.
+
+Only training-set ratings will be used to construct the network. Validation and test ratings will not contribute to the inferred global ranking.
+
+The ranking implementation will follow the relevant model assumptions and inference procedure in Newman's paper as closely as appropriate for the adapted data. Any changes required for the movie domain will be documented.
+
+### 3. Global Movie Ranking
+
+The comparison network will be used to estimate a global score for each movie. This score will represent its inferred relative standing across the comparison data.
+
+The implementation will record the comparison types, preprocessing choices, ranking procedure, and treatment of movies with limited comparison information.
+
+The resulting scores will be inspected before being incorporated into the sequential recommendation model.
+
+### 4. Score Fusion
+
+The global movie score will be combined with BERT4Rec's personalized recommendation score:
+
+s_combined(u, i) = s_BERT4Rec(u, i) + lambda * g(i)
+
+where:
+
+- u denotes a user.
+- i denotes a candidate movie.
+- s_BERT4Rec(u, i) is the original BERT4Rec score.
+- g(i) is the normalized global movie-ranking score.
+- lambda controls the contribution of the global ranking.
+
+The score normalization procedure and candidate-item handling will be held consistent across experiments.
+
+The fusion weight will be selected using validation performance, primarily NDCG@10. The test set will be reserved for final evaluation after model selection.
+
+## Experiments
+
+The following experiments will be conducted:
+
+| Experiment | Description |
+|---|---|
+| A | BERT4Rec baseline |
+| B | Global comparison-network ranking alone |
+| C | BERT4Rec combined with the global ranking |
+| D | BERT4Rec combined with different global-ranking weights |
+| E | BERT4Rec combined with a popularity-based ranking signal |
+
+The popularity-based comparison is intended to determine whether the network method contributes useful information beyond a simpler global ranking heuristic.
 
 ## Evaluation
 
-The models are evaluated on held-out test interactions using the following ranking metrics:
+The primary evaluation metrics are:
 
-- **HR@5:** Whether the held-out target item appears in the top 5 recommendations.
-- **HR@10:** Whether the held-out target item appears in the top 10 recommendations.
-- **NDCG@5:** Normalized discounted cumulative gain at rank 5.
-- **NDCG@10:** Normalized discounted cumulative gain at rank 10.
+- **HR@10:** Measures whether the held-out target movie appears among the ten highest-ranked recommendations.
+- **NDCG@10:** Measures ranking quality while assigning greater weight to relevant movies appearing closer to the top of the recommendation list.
 
-The evaluation pipeline ranks candidate movies and excludes items the user has already interacted with, where configured.
+HR@5 and NDCG@5 may also be reported as supplementary metrics.
 
-Validation performance is used for model selection, including hyperparameter selection and checkpoint selection. The held-out test set is reserved for final evaluation.
+Evaluation will use the same chronological splits, candidate-item handling, and exclusion of previously interacted-with movies across the compared recommendation systems.
 
-For fair comparisons, use consistent data splits, candidate-item handling, ranking metrics, and evaluation settings. Document differences between the standard and causal JEPA implementations where relevant.
+Validation performance will be used for model selection. The held-out test set will be used for final reporting only after the model and fusion weight have been selected.
+
+Computational measurements will include network construction time, ranking computation time, recommendation evaluation time, and additional memory requirements where available.
+
+## Determining Success
+
+The primary success criterion is an improvement in validation NDCG@10 over the BERT4Rec baseline, followed by confirmation on the held-out test set.
+
+HR@10 will provide complementary evidence about whether the combined system retrieves the target movie more frequently.
+
+Results will be interpreted alongside the popularity-based baseline and computational overhead.
+
+Possible outcomes include:
+
+- **Improvement:** The network ranking provides complementary information that improves sequential recommendation.
+- **No meaningful change:** The global ranking may contain little additional information beyond BERT4Rec.
+- **Degradation:** The global ranking may interfere with personalized recommendations.
+- **Popularity-equivalent improvement:** The gain may be attributable to global item popularity rather than the heterogeneous comparison method.
+
+All outcomes will be reported, including negative results.
 
 ## Repository Structure
 
 ```text
-jepa-recommender/
-├── configs/                       # Experiment configurations
+newman-movie-reranking/
+├── configs/
+│   └── bert4rec_baseline.yaml
 ├── data/
-│   ├── raw/                       # Original dataset
-│   ├── interim/                   # Intermediate preprocessing artifacts
-│   └── processed/                 # Model-ready datasets
-├── checkpoints/                   # Trained model weights
-├── results/                       # Metrics, histories, and summaries
-│   └── jepa_grid_search/          # Causal JEPA hyperparameter-search results
-├── notebooks/                     # Exploratory analysis and experiments
-├── scripts/                       # Dataset, search, and evaluation entry points
-└── src/
-    ├── data/                      # Dataset loading and preprocessing
-    ├── models/                    # BERT4Rec and JEPA architectures
-    ├── training/                  # Training loops and EMA
-    ├── evaluation/                # Metrics and evaluation logic
-    └── utils/                     # Configuration, logging, and utilities
+│   ├── raw/
+│   ├── interim/
+│   └── processed/
+├── checkpoints/
+├── results/
+│   ├── bert4rec_baseline/
+│   ├── network_ranking/
+│   └── score_fusion/
+├── scripts/
+│   ├── build_movie_network.py
+│   ├── run_network_ranking.py
+│   ├── run_score_fusion.py
+│   └── run_evaluation.py
+├── src/
+│   ├── models/
+│   ├── data/
+│   ├── network/
+│   ├── ranking/
+│   ├── recommendation/
+│   └── evaluation/
+├── tests/
+├── requirements.txt
+├── .gitignore
+└── README.md
 ```
 
-## Installation
-
-### Requirements
-
-- Python 3.10 or later
-- PyTorch 2.2 or later
-- CUDA-compatible GPU recommended for training
-
-Create and activate a virtual environment:
-
-```bash
-python -m venv .venv
-```
-
-Windows (Git Bash):
-
-```bash
-source .venv/Scripts/activate
-```
-
-Linux or macOS:
-
-```bash
-source .venv/bin/activate
-```
-
-Install the project dependencies:
-
-```bash
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-**PyTorch and CUDA:** The appropriate PyTorch build depends on your operating system, GPU, and CUDA support. If you intend to train on an NVIDIA GPU, follow the official PyTorch installation instructions to install a compatible CUDA-enabled build.
-
-Verify the installation:
-
-```bash
-python -c "import torch; print(torch.__version__); print(torch.cuda.is_available())"
-```
-
-## Data Preparation
-
-Download the official MovieLens-1M dataset from GroupLens and extract the dataset files into:
-
-```text
-data/raw/ml-1m/
-```
-
-The expected files are:
-
-```text
-data/raw/ml-1m/
-├── README
-├── movies.dat
-├── ratings.dat
-└── users.dat
-```
-
-Do not modify the original dataset files.
-
-Run the preprocessing entry points available in the repository to generate the intermediate and processed datasets. If the repository includes `scripts/download_ml1m.py` and `scripts/preprocess_ml1m.py`, the commands are:
-
-```bash
-python scripts/download_ml1m.py
-python scripts/preprocess_ml1m.py
-```
-
-Refer to `data/README.md` and the available scripts for the exact data preparation workflow.
-
-## Experiment Configurations
-
-Experiment parameters are stored in YAML files under `configs/`.
-
-| Configuration | Description |
-|---|---|
-| `bert4rec_baseline.yaml` | Baseline BERT4Rec experiment |
-| `bert4rec_tuned.yaml` | Tuned BERT4Rec experiment |
-| `jepa_baseline.yaml` | Baseline standard JEPA experiment |
-| `jepa_tuned.yaml` | Tuned standard JEPA experiment |
-| `jepa_causal_baseline.yaml` | Baseline causal, one-pass JEPA experiment |
-| `jepa_causal_tuned.yaml` | Tuned causal, one-pass JEPA experiment |
-
-Each configuration specifies dataset paths, model architecture, training parameters, and output locations.
-
-The causal JEPA configurations use the causal training implementation and should be treated as separate experiments from the standard JEPA configurations.
-
-## Training
-
-Run commands from the repository root. Ensure the required processed datasets are available before starting training.
-
-### BERT4Rec Baseline
-
-```bash
-python -m src.training.train_bert4rec \
-  --config configs/bert4rec_baseline.yaml
-```
-
-### BERT4Rec Tuned
-
-```bash
-python -m src.training.train_bert4rec \
-  --config configs/bert4rec_tuned.yaml
-```
-
-### Standard JEPA Baseline
-
-```bash
-python -m src.training.train_jepa \
-  --config configs/jepa_baseline.yaml
-```
-
-### Standard JEPA Tuned
-
-```bash
-python -m src.training.train_jepa \
-  --config configs/jepa_tuned.yaml
-```
-
-### Causal JEPA Baseline
-
-```bash
-python -m src.training.train_jepa_causal \
-  --config configs/jepa_causal_baseline.yaml
-```
-
-### Causal JEPA Tuned
-
-```bash
-python -m src.training.train_jepa_causal \
-  --config configs/jepa_causal_tuned.yaml
-```
-
-Training saves model checkpoints under `checkpoints/` and experiment outputs under the corresponding `results/` directory, as specified by the configuration and training pipeline.
-
-## Hyperparameter Search
-
-Hyperparameter search is used to investigate optimization settings for the BERT4Rec and causal, one-pass JEPA implementation. The search evaluates the parameter combinations defined in hyperparamter search script respectively.
-
-The search is launched using each baseline configuration:
-
-BERT4Rec:
-```bash
-python -m scripts.run_bert4rec_hyperparameter_search \
-    --config configs/bert4rec_tuned.yaml \
-    --output-dir results/bert4rec_grid_search
-    --allow-existing
-```
-
-JEPA Causal:
-
-```bash
-python -m scripts.run_jepa_hyperparameter_search \
-  --config configs/jepa_causal_tuned.yaml \
-  --output-dir results/jepa_grid_search \
-  --allow-existing
-```
-
-The baseline configuration provides the starting architecture and training setup. The search script generates trial-specific configurations, applies the candidate optimization settings, and records the resulting validation performance.
-
-### Search Outputs
-
-Search outputs are organized separately from ordinary training results:
-
-```text
-results/
-└── <model>_grid_search/
-    ├── search_summary.csv
-    ├── grid_search_report.json
-    ├── <trial_name_1>/
-    │   ├── config.yaml
-    │   ├── training_history.csv
-    │   └── run_summary.json
-    └── <trial_name_2>/
-        ├── config.yaml
-        ├── training_history.csv
-        └── run_summary.json
-```
-
-The exact number and names of trials depend on the parameter grid defined in the search script.
-
-- `search_summary.csv` contains the aggregate results for individual trials.
-- `grid_search_report.json` contains the machine-readable search report.
-- Each trial directory records the configuration used, training history, and run summary.
-
-The search is intended to avoid saving a model checkpoint for every trial, while preserving the information needed to compare configurations. Verify that checkpoint saving is disabled in the search script and that the trainer honors that setting.
-
-### Selecting the Tuned Configuration
-
-Use validation performance, such as validation NDCG@10, to compare candidate configurations and select the optimization settings for the tuned causal JEPA experiment.
-
-The selected settings should then be recorded in `configs/bert4rec_tuned.yaml` and `configs/jepa_causal_tuned.yaml` respectively. Keep the baseline configuration unchanged so the original settings remain available for comparison.
-
-For reproducibility, retain the aggregate search results and the configuration for each trial. Report the final held-out test metrics only after selecting the configuration using validation data.
-
-## Cross-Seed Comparison
-
-Cross-seed experiments evaluate the stability and reproducibility of JEPA and BERT4Rec under different random seeds while keeping all other hyperparameters fixed. This helps determine whether observed performance differences are consistent or attributable to randomness during model initialization and training.
-
-The `scripts/run_cross_seed_comparison.py` script supports both models and generates the following reports in the specified output directory:
-
-- `seed_results.csv`: Individual results for each seed, including ranking metrics, best epoch, and training time.
-- `seed_summary.csv`: Aggregate statistics across successful runs, including the mean, median, standard deviation, minimum, and maximum for each metric.
-- `cross_seed_report.json`: Complete experiment metadata, individual run records, summary statistics, and run status.
-
-Experiments are ranked using the trainer-provided selection score, typically validation NDCG@10. Test performance, when available, should be reported separately rather than used for model selection.
-
-JEPA Causal
-
-```bash
-python -m scripts.run_cross_seed_comparison \
-  --config configs/jepa_causal_tuned.yaml \
-  --output-dir results/jepa_seed_search \
-  --allow-existing
-```
-
-BERT4Rec
-
-```bash
-python -m scripts.run_cross_seed_comparison \
-  --config configs/bert4rec_tuned.yaml \
-  --output-dir results/bert4rec_seed_search \
-  --allow-existing
-```
-
-By default, the script evaluates five seeds (`42`, `123`, `2024`, `7`, and `21`). Use `--seeds` to specify a different set. The original YAML configuration files remain unchanged, and successful runs can be resumed from existing reports.
-
-## Evaluation
-
-Evaluation uses a trained checkpoint and the corresponding experiment configuration. Run the commands from the repository root so that project imports and relative paths resolve correctly.
-
-### BERT4Rec Baseline
-
-```bash
-python -m scripts.run_bert4rec_evaluation \
-  --config configs/bert4rec_baseline.yaml \
-  --checkpoint checkpoints/bert4rec_baseline/bert4rec_baseline_best.pt
-```
-
-### BERT4Rec Tuned
-
-```bash
-python -m scripts.run_bert4rec_evaluation \
-  --config configs/bert4rec_tuned.yaml \
-  --checkpoint checkpoints/bert4rec_tuned/bert4rec_tuned_best.pt
-```
-
-### Standard JEPA Baseline
-
-```bash
-python -m scripts.run_jepa_evaluation \
-  --config configs/jepa_baseline.yaml \
-  --checkpoint checkpoints/jepa_baseline/jepa_baseline_best.pt
-```
-
-### Standard JEPA Tuned
-
-```bash
-python -m scripts.run_jepa_evaluation \
-  --config configs/jepa_tuned.yaml \
-  --checkpoint checkpoints/jepa_tuned/jepa_tuned_best.pt
-```
-
-### Causal JEPA Baseline
-
-```bash
-python -m scripts.run_jepa_evaluation \
-  --config configs/jepa_causal_baseline.yaml \
-  --checkpoint checkpoints/jepa_causal_baseline/jepa_causal_baseline_best.pt
-```
-
-### Causal JEPA Tuned
-
-```bash
-python -m scripts.run_jepa_evaluation \
-  --config configs/jepa_causal_tuned.yaml \
-  --checkpoint checkpoints/jepa_causal_tuned/jepa_causal_tuned_best.pt
-```
-
-## Results and Experiment Tracking
-
-Each experiment has a dedicated results directory. For example:
-
-```text
-results/
-├── bert4rec_baseline/
-├── bert4rec_tuned/
-├── jepa_baseline/
-├── jepa_tuned/
-├── jepa_causal_baseline/
-└── jepa_causal_tuned/
-```
-
-Depending on the experiment pipeline, results may include:
-
-- `config.yaml`: The configuration used for the run.
-- `training_history.csv`: Epoch-level loss, validation metrics, and timing.
-- `run_summary.json`: Configuration and run-level summary.
-- `test_results.json`: Held-out test metrics, if produced by the evaluation pipeline.
-
-The hyperparameter search directory contains aggregate trial results and trial-specific output folders.
-
-Training time, validation time, epoch duration, and peak GPU memory are useful for assessing computational cost alongside recommendation metrics. Preserve the hardware and software environment details when reporting performance.
-
-Model checkpoints are stored separately under `checkpoints/`. See `results/README.md` and `checkpoints/README.md` for additional details.
+This structure describes the intended project organization. Script names and module paths will be updated to match the actual implementation.
 
 ## Reproducibility
 
-The project uses configuration files to define experiment settings and utility functions to support consistent random seeding and checkpoint management.
+The project will preserve:
 
-For reproducible experiments:
+1. The BERT4Rec configuration and checkpoint identifier.
+2. The preprocessing and chronological split definitions.
+3. The movie comparison types and network construction parameters.
+4. The ranking implementation and score-normalization procedure.
+5. The fusion weights and validation-based selection criterion.
+6. Individual experiment results and aggregate evaluation tables.
+7. The software environment and hardware information.
+8. The final held-out test results.
 
-1. Use the same dataset and preprocessing settings.
-2. Use the corresponding YAML configuration for each run.
-3. Record the software and hardware environment.
-4. Preserve training histories, trial configurations, search reports, and evaluation outputs.
-5. Select hyperparameters and checkpoints using validation performance.
-6. Report final results on the held-out test set.
-7. Document the search space and selection criterion when reporting tuned results.
+Random seeds will be recorded for experiments involving stochastic model training or randomized procedures.
 
-Exact results may vary with hardware, software versions, nondeterministic GPU operations, and training conditions.
+## Relationship to Existing Research
 
-## Current Results
+This repository is a focused extension of the broader JEPA and BERT4Rec sequential recommendation research conducted for the author's master's research.
 
-The following are the current held-out test results for the standard BERT4Rec and JEPA configurations. These are experimental results and may be updated as the project continues.
+The existing research investigates JEPA-based sequential recommendation and compares its performance with BERT4Rec. This course project instead focuses on network science: whether heterogeneous pairwise-comparison ranking can complement an established personalized recommender.
 
-| Model | Configuration | HR@5 | HR@10 | NDCG@5 | NDCG@10 |
-|---|---|---:|---:|---:|---:|
-| BERT4Rec | Baseline | 0.1444 | 0.2265 | 0.0956 | 0.1220 |
-| BERT4Rec | Tuned | 0.1955 | 0.2884 | 0.12956 | 0.1593 |
-| JEPA | Baseline | 0.0728 | 0.1065 | 0.0491 | 0.0598 |
-| JEPA | Tuned | 0.1273 | 0.1801 | 0.0928 | 0.1098 |
-| JEPA Causal | Baseline | 0.1545 | 0.1935 | 0.1108 | 0.1234 |
-| JEPA Causal | Tuned | 0.1619 | 0.2127 | 0.1147 | 0.1311 |
+The BERT4Rec implementation and established preprocessing pipeline will be reused where appropriate to avoid unnecessary reimplementation and to preserve a consistent baseline.
 
-## Research Status
+## References
 
-This repository contains baseline and tuned experiment pipelines for BERT4Rec and standard JEPA, alongside a causal, one-pass JEPA implementation and a hyperparameter-search workflow.
+Newman, M. E. J. *Ranking with Multiple Types of Pairwise Comparisons*. Use the publication or preprint details corresponding to the version studied in the course.
 
-Ongoing experiments investigate the relationship between recommendation quality, optimization settings, training time, and computational efficiency. Final comparative conclusions will be updated as the causal experiments and additional analyses are completed and validated.
+Harper, F. Maxwell, and Joseph A. Konstan. 2015. “The MovieLens Datasets: History and Context.” *ACM Transactions on Interactive Intelligent Systems*, 5(4), Article 19. https://doi.org/10.1145/2827872.
 
-## Citation
+MovieLens data is provided by the GroupLens Research Project at the University of Minnesota. Please follow the dataset's applicable usage terms.
 
-If you use MovieLens-1M, cite:
+## Author
 
-> F. Maxwell Harper and Joseph A. Konstan. 2015. The MovieLens Datasets: History and Context. *ACM Transactions on Interactive Intelligent Systems*, 5(4), Article 19. https://doi.org/10.1145/2827872
-
-Please also follow the MovieLens dataset's usage terms. The dataset must not be redistributed without permission.
-
-## Acknowledgements
-
-MovieLens-1M is provided by the GroupLens Research Project at the University of Minnesota. The dataset is used here for academic research and does not imply endorsement by GroupLens or the University of Minnesota.
+Izaak King  
+CSCI 6250 — Frontiers of Network Science  
+Rensselaer Polytechnic Institute  
+Fall 2026
