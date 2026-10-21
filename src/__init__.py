@@ -1,0 +1,3 @@
+"""
+JEPA Recommender source package.
+"""

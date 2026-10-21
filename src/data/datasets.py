@@ -2,7 +2,7 @@
 PyTorch datasets for sequential recommendation.
 
 This module provides the model-specific dataset wrappers used by both
-BERT4Rec. Preprocessing remains separate so that the training
+BERT4Rec and JEPA. Preprocessing remains separate so that the training
 pipeline consumes already prepared data.
 """
 

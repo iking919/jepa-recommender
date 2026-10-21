@@ -1,5 +1,5 @@
 """
-Evaluation and recommendation utilities for the BERT4Rec model.
+Evaluation and recommendation utilities for the JEPA Recommender project.
 """
 
 from .metrics import (
