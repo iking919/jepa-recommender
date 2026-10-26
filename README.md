@@ -382,7 +382,7 @@ python -m scripts.run_cross_seed_comparison \
   --allow-existing
 ```
 
-By default, the script evaluates five seeds (`42`, `123`, `2024`, `7`, and `21`). Use `--seeds` to specify a different set. The original YAML configuration files remain unchanged, and successful runs can be resumed from existing reports.
+By default, the script evaluates five seeds (`42`, `123`, `456`, `789`, and `2026`). Use `--seeds` to specify a different set. The original YAML configuration files remain unchanged, and successful runs can be resumed from existing reports.
 
 ## Evaluation
 
@@ -490,7 +490,7 @@ The following are the current held-out test results for the standard BERT4Rec an
 | JEPA | Baseline | 0.0728 | 0.1065 | 0.0491 | 0.0598 |
 | JEPA | Tuned | 0.1273 | 0.1801 | 0.0928 | 0.1098 |
 | JEPA Causal | Baseline | 0.1545 | 0.1935 | 0.1108 | 0.1234 |
-| JEPA Causal | Tuned | 0.1619 | 0.2127 | 0.1147 | 0.1311 |
+| JEPA Causal | Tuned | 0.1609 | 0.2081 | 0.1153 | 0.1306 |
 
 ## Research Status
 
