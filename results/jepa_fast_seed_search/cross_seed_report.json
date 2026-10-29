@@ -1,0 +1,152 @@
+{
+  "experiment": "cross-seed comparison",
+  "model": "jepa",
+  "config_path": "/home/kingi/jepa-recommender/configs/jepa_causal_tuned_fast.yaml",
+  "started_at": "2026-10-26T20:11:21.635388-04:00",
+  "updated_at": "2026-10-26T20:18:48.628570-04:00",
+  "completed": false,
+  "requested_seeds": [
+    42,
+    123,
+    456,
+    789,
+    2026
+  ],
+  "total_seeds": 5,
+  "successful_runs": 1,
+  "failed_runs": 0,
+  "selection_metric": "validation NDCG@10",
+  "test_set_evaluated": false,
+  "config_changed": "seed only",
+  "metric_summary": [
+    {
+      "metric": "HR@5",
+      "n": 1,
+      "mean": 0.15215231478214264,
+      "median": 0.15215231478214264,
+      "std": null,
+      "min": 0.15215231478214264,
+      "max": 0.15215231478214264
+    },
+    {
+      "metric": "HR@10",
+      "n": 1,
+      "mean": 0.20016556978225708,
+      "median": 0.20016556978225708,
+      "std": null,
+      "min": 0.20016556978225708,
+      "max": 0.20016556978225708
+    },
+    {
+      "metric": "NDCG@5",
+      "n": 1,
+      "mean": 0.10816901177167892,
+      "median": 0.10816901177167892,
+      "std": null,
+      "min": 0.10816901177167892,
+      "max": 0.10816901177167892
+    },
+    {
+      "metric": "NDCG@10",
+      "n": 1,
+      "mean": 0.12363710254430771,
+      "median": 0.12363710254430771,
+      "std": null,
+      "min": 0.12363710254430771,
+      "max": 0.12363710254430771
+    },
+    {
+      "metric": "best_selection_score",
+      "n": 1,
+      "mean": 0.12363710254430771,
+      "median": 0.12363710254430771,
+      "std": null,
+      "min": 0.12363710254430771,
+      "max": 0.12363710254430771
+    },
+    {
+      "metric": "best_epoch",
+      "n": 1,
+      "mean": 33.0,
+      "median": 33.0,
+      "std": null,
+      "min": 33.0,
+      "max": 33.0
+    },
+    {
+      "metric": "completed_epochs",
+      "n": 1,
+      "mean": 53.0,
+      "median": 53.0,
+      "std": null,
+      "min": 53.0,
+      "max": 53.0
+    },
+    {
+      "metric": "elapsed_seconds",
+      "n": 1,
+      "mean": 323.9457656326704,
+      "median": 323.9457656326704,
+      "std": null,
+      "min": 323.9457656326704,
+      "max": 323.9457656326704
+    },
+    {
+      "metric": "average_epoch_seconds",
+      "n": 1,
+      "mean": 6.112184257220195,
+      "median": 6.112184257220195,
+      "std": null,
+      "min": 6.112184257220195,
+      "max": 6.112184257220195
+    }
+  ],
+  "best_seed_by_validation_ndcg10": {
+    "seed": 42,
+    "status": "SUCCESS",
+    "best_epoch": 33,
+    "completed_epochs": 53,
+    "HR@5": 0.15215231478214264,
+    "HR@10": 0.20016556978225708,
+    "NDCG@5": 0.10816901177167892,
+    "NDCG@10": 0.12363710254430771,
+    "best_selection_score": 0.12363710254430771,
+    "elapsed_seconds": 323.9457656326704,
+    "average_epoch_seconds": 6.112184257220195,
+    "trainer_timing": {
+      "total_training_time_seconds": 304.6470219120383,
+      "total_training_time_minutes": 5.077450365200638,
+      "total_train_only_seconds": 119.28234999906272,
+      "time_to_best_epoch_seconds": 185.38965804269537,
+      "average_epoch_time_seconds": 5.748057017208271,
+      "average_train_time_seconds": 2.250610377340806,
+      "average_validation_time_seconds": 3.332181009077379
+    },
+    "error": null
+  },
+  "runs": [
+    {
+      "seed": 42,
+      "status": "SUCCESS",
+      "best_epoch": 33,
+      "completed_epochs": 53,
+      "HR@5": 0.15215231478214264,
+      "HR@10": 0.20016556978225708,
+      "NDCG@5": 0.10816901177167892,
+      "NDCG@10": 0.12363710254430771,
+      "best_selection_score": 0.12363710254430771,
+      "elapsed_seconds": 323.9457656326704,
+      "average_epoch_seconds": 6.112184257220195,
+      "trainer_timing": {
+        "total_training_time_seconds": 304.6470219120383,
+        "total_training_time_minutes": 5.077450365200638,
+        "total_train_only_seconds": 119.28234999906272,
+        "time_to_best_epoch_seconds": 185.38965804269537,
+        "average_epoch_time_seconds": 5.748057017208271,
+        "average_train_time_seconds": 2.250610377340806,
+        "average_validation_time_seconds": 3.332181009077379
+      },
+      "error": null
+    }
+  ]
+}

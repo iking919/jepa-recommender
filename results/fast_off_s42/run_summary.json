@@ -1,0 +1,82 @@
+{
+  "model": "JEPA (causal one-pass)",
+  "experiment_name": "fast_off_s42",
+  "dataset": "MovieLens-1M",
+  "run_start": "2026-10-26T20:24:11.397626",
+  "run_end": "2026-10-26T20:28:51.516010",
+  "device": "cuda",
+  "seed": 42,
+  "configured_epochs": 150,
+  "completed_epochs": 44,
+  "best_epoch": 24,
+  "best_metrics": {
+    "HR@5": 0.17218543589115143,
+    "HR@10": 0.22947020828723907,
+    "NDCG@5": 0.12288296967744827,
+    "NDCG@10": 0.1414940506219864
+  },
+  "best_epoch_loss": 0.8462187917608964,
+  "best_selection_score": 0.1414940506219864,
+  "timing": {
+    "total_training_time_seconds": 280.1183734256774,
+    "total_training_time_minutes": 4.6686395570946235,
+    "total_train_only_seconds": 143.7123298831284,
+    "time_to_best_epoch_seconds": 142.8372092912905,
+    "average_epoch_time_seconds": 6.366326668765396,
+    "average_train_time_seconds": 3.2661893155256454,
+    "average_validation_time_seconds": 3.082427384617569
+  },
+  "hardware": {
+    "device": "cuda",
+    "gpu": "NVIDIA A100 80GB PCIe",
+    "peak_gpu_memory_gb": 1.0000700950622559
+  },
+  "model_parameters": {
+    "total": 9012608,
+    "trainable": 7700096
+  },
+  "training_configuration": {
+    "batch_size": 64,
+    "learning_rate": 0.0005,
+    "weight_decay": 0.01,
+    "mixed_precision": true,
+    "amp_dtype": "bfloat16",
+    "compile": false,
+    "ema_decay": 0.996,
+    "patience": 20,
+    "window_stride": 100,
+    "loss": "cosine",
+    "temperature": 0.1,
+    "trim_padding": false,
+    "length_bucketing": 0,
+    "lr_schedule": "cosine",
+    "warmup_epochs": 0,
+    "min_lr_ratio": 0.0,
+    "selection_window": 1,
+    "save_checkpoint": false
+  },
+  "model_configuration": {
+    "vocab_size": 3418,
+    "max_seq_len": 200,
+    "hidden_dim": 384,
+    "num_layers": 4,
+    "num_heads": 8,
+    "feed_forward_dim": 1024,
+    "dropout": 0.2,
+    "pad_token_id": 0,
+    "causal": true
+  },
+  "data": {
+    "sequences": 6040,
+    "training_windows": 6040,
+    "supervised_targets_per_epoch": 642719,
+    "training_batches_per_epoch": 95,
+    "validation_samples": 6040
+  },
+  "files": {
+    "checkpoint": null,
+    "epoch_history": "results/fast_off_s42/training_history.csv",
+    "run_summary": "results/fast_off_s42/run_summary.json",
+    "config": "results/fast_off_s42/config.yaml"
+  }
+}
