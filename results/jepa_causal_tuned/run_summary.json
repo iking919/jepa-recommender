@@ -1,39 +1,196 @@
 {
+  "schema_version": "1.0",
   "model": "JEPA (causal one-pass)",
   "experiment_name": "jepa_causal_tuned",
   "dataset": "MovieLens-1M",
-  "run_start": "2026-10-20T11:07:22.981931",
-  "run_end": "2026-10-20T11:09:51.293367",
-  "device": "cuda",
-  "seed": 2026,
-  "configured_epochs": 150,
-  "completed_epochs": 42,
-  "best_epoch": 22,
-  "best_metrics": {
-    "HR@5": 0.16870860755443573,
-    "HR@10": 0.2218542993068695,
-    "NDCG@5": 0.12123379856348038,
-    "NDCG@10": 0.13834288716316223
-  },
-  "best_epoch_loss": 0.8515288503546464,
-  "best_selection_score": 0.13834288716316223,
-  "timing": {
-    "total_training_time_seconds": 148.31142239808105,
-    "total_training_time_minutes": 2.4718570399680173,
-    "total_train_only_seconds": 49.6289685908705,
-    "time_to_best_epoch_seconds": 74.24169191299006,
-    "average_epoch_time_seconds": 3.5312243428114534,
-    "average_train_time_seconds": 1.1816421093064404,
-    "average_validation_time_seconds": 2.1825539406632917
-  },
-  "hardware": {
+  "run": {
+    "start": "2026-10-28T20:47:48.426729",
+    "end": "2026-10-28T20:55:04.103277",
     "device": "cuda",
-    "gpu": "NVIDIA A100 80GB PCIe",
-    "peak_gpu_memory_gb": 0.9996705055236816
+    "seed": 123
   },
-  "model_parameters": {
+  "epochs": {
+    "configured": 150,
+    "completed": 44,
+    "best_epoch": 24,
+    "early_stopped": true
+  },
+  "best": {
+    "epoch": 24,
+    "metrics": {
+      "HR@5": 0.17119204998016357,
+      "HR@10": 0.2311258316040039,
+      "NDCG@5": 0.12210498005151749,
+      "NDCG@10": 0.14135940372943878
+    },
+    "loss": 0.8469134682103208,
+    "selection_score": 0.14135940372943878
+  },
+  "timing": {
+    "total_wall_clock_seconds": 435.67653706483543,
+    "total_wall_clock_minutes": 7.261275617747257,
+    "total_train_seconds": 191.14173714071512,
+    "total_validation_seconds": 233.69540661294013,
+    "total_epoch_seconds": 424.83714375365525,
+    "setup_and_overhead_seconds": 10.839393311180174,
+    "time_to_best_epoch_seconds": 233.73470953572541,
+    "average_epoch_seconds": 9.655389630764892,
+    "average_train_seconds": 4.344130389561707,
+    "average_validation_seconds": 5.311259241203185,
+    "train_samples_per_second": 147951.12999931062
+  },
+  "memory": {
+    "units": "GiB (1024^3 bytes) unless key ends in _bytes",
+    "gpu": {
+      "available": true,
+      "device_name": "NVIDIA A100 80GB PCIe",
+      "device_total_capacity_gb": 79.250732421875,
+      "peak_allocated_gb": 1.0001654624938965,
+      "peak_reserved_gb": 1.33984375,
+      "peak_utilization_fraction": 0.01690638949388653,
+      "final_allocated_gb": 0.1522221565246582,
+      "final_reserved_gb": 1.33984375,
+      "epoch_peak_allocated_gb": {
+        "max": 1.0001654624938965,
+        "mean": 1.00015436519276,
+        "min": 0.9996771812438965
+      },
+      "epoch_peak_reserved_gb": {
+        "max": 1.33984375,
+        "mean": 1.3397993607954546,
+        "min": 1.337890625
+      },
+      "peak_by_phase": {
+        "setup": {
+          "peak_allocated_gb": 0.04223060607910156,
+          "peak_reserved_gb": 0.0625,
+          "cumulative_alloc_churn_gb": 0.05123329162597656,
+          "total_seconds": 8.064524091780186,
+          "calls": 1
+        },
+        "train": {
+          "peak_allocated_gb": 1.0001654624938965,
+          "peak_reserved_gb": 1.33984375,
+          "cumulative_alloc_churn_gb": 19608.532558441162,
+          "total_seconds": 191.1658939588815,
+          "calls": 44
+        },
+        "validation": {
+          "peak_allocated_gb": 0.42494678497314453,
+          "peak_reserved_gb": 1.33984375,
+          "cumulative_alloc_churn_gb": 7274.839972496033,
+          "total_seconds": 233.69609224190935,
+          "calls": 44
+        }
+      },
+      "cumulative_alloc_churn_gb": 26883.42376422882,
+      "gb_seconds_reserved": 569.1970967725993,
+      "allocator": {
+        "num_alloc_retries": 0,
+        "num_ooms": 0
+      },
+      "peak_allocated_gb_per_epoch_history": [
+        0.9996771812438965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965,
+        1.0001654624938965
+      ]
+    },
+    "cpu": {
+      "peak_rss_gb": 2.557628631591797,
+      "final_rss_gb": 2.525623321533203,
+      "start_rss_gb": 0.6532058715820312
+    },
+    "static": {
+      "parameters_gb": 0.033574581146240234,
+      "trainable_parameters_gb": 0.02868509292602539,
+      "buffers_gb": 0.00014901161193847656,
+      "gradients_gb_estimate": 0.02868509292602539,
+      "optimizer_state_gb": 0.0573703870177269,
+      "context_encoder_gb": 0.025750160217285156,
+      "target_encoder_gb": 0.004889488220214844,
+      "data_resident_on_gpu_gb": 0.00796651840209961,
+      "static_resident_gb": 0.09906049817800522,
+      "checkpoints": {
+        "process_start": {
+          "gpu_allocated_gb": 0.0,
+          "gpu_reserved_gb": 0.0,
+          "cpu_rss_gb": 0.6532058715820312
+        },
+        "after_data": {
+          "gpu_allocated_gb": 0.00796651840209961,
+          "gpu_reserved_gb": 0.021484375,
+          "cpu_rss_gb": 1.5775642395019531
+        },
+        "after_model": {
+          "gpu_allocated_gb": 0.04223060607910156,
+          "gpu_reserved_gb": 0.0625,
+          "cpu_rss_gb": 1.5811538696289062
+        },
+        "after_setup": {
+          "gpu_allocated_gb": 0.04223060607910156,
+          "gpu_reserved_gb": 0.0625,
+          "cpu_rss_gb": 1.6853790283203125
+        },
+        "after_training": {
+          "gpu_allocated_gb": 0.1522221565246582,
+          "gpu_reserved_gb": 1.33984375,
+          "cpu_rss_gb": 2.525623321533203
+        }
+      }
+    },
+    "efficiency": {
+      "peak_allocated_bytes_per_parameter": 119.15746119214327,
+      "peak_reserved_bytes_per_parameter": 159.625967533482,
+      "peak_allocated_gb_per_million_parameters": 0.11097403354211084,
+      "activation_and_gradient_overhead_gb": 0.9011049643158913,
+      "static_fraction_of_train_peak": 0.09904411009254355
+    }
+  },
+  "parameters": {
     "total": 9012608,
-    "trainable": 7700096
+    "trainable": 7700096,
+    "non_trainable": 1312512
   },
   "training_configuration": {
     "batch_size": 64,
@@ -42,14 +199,14 @@
     "mixed_precision": true,
     "amp_dtype": "bfloat16",
     "compile": false,
-    "ema_decay": 0.996,
     "patience": 20,
-    "window_stride": 100,
     "lr_schedule": "cosine",
     "warmup_epochs": 0,
     "min_lr_ratio": 0.0,
     "selection_window": 1,
-    "save_checkpoint": true
+    "save_checkpoint": true,
+    "ema_decay": 0.996,
+    "window_stride": 100
   },
   "model_configuration": {
     "vocab_size": 3418,
@@ -74,5 +231,6 @@
     "epoch_history": "results/jepa_causal_tuned/training_history.csv",
     "run_summary": "results/jepa_causal_tuned/run_summary.json",
     "config": "results/jepa_causal_tuned/config.yaml"
-  }
+  },
+  "extras": {}
 }

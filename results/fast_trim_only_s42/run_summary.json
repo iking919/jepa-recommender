@@ -1,0 +1,82 @@
+{
+  "model": "JEPA (causal one-pass)",
+  "experiment_name": "fast_trim_only_s42",
+  "dataset": "MovieLens-1M",
+  "run_start": "2026-10-26T20:18:58.318451",
+  "run_end": "2026-10-26T20:23:59.576527",
+  "device": "cuda",
+  "seed": 42,
+  "configured_epochs": 150,
+  "completed_epochs": 44,
+  "best_epoch": 24,
+  "best_metrics": {
+    "HR@5": 0.1740066260099411,
+    "HR@10": 0.22599337995052338,
+    "NDCG@5": 0.12421861290931702,
+    "NDCG@10": 0.14103075861930847
+  },
+  "best_epoch_loss": 0.8462414390162418,
+  "best_selection_score": 0.14103075861930847,
+  "timing": {
+    "total_training_time_seconds": 301.25806343602017,
+    "total_training_time_minutes": 5.020967723933669,
+    "total_train_only_seconds": 155.04382520960644,
+    "time_to_best_epoch_seconds": 164.02971983142197,
+    "average_epoch_time_seconds": 6.846774169000458,
+    "average_train_time_seconds": 3.5237233002183284,
+    "average_validation_time_seconds": 3.307111281605268
+  },
+  "hardware": {
+    "device": "cuda",
+    "gpu": "NVIDIA A100 80GB PCIe",
+    "peak_gpu_memory_gb": 1.0000700950622559
+  },
+  "model_parameters": {
+    "total": 9012608,
+    "trainable": 7700096
+  },
+  "training_configuration": {
+    "batch_size": 64,
+    "learning_rate": 0.0005,
+    "weight_decay": 0.01,
+    "mixed_precision": true,
+    "amp_dtype": "bfloat16",
+    "compile": false,
+    "ema_decay": 0.996,
+    "patience": 20,
+    "window_stride": 100,
+    "loss": "cosine",
+    "temperature": 0.1,
+    "trim_padding": true,
+    "length_bucketing": 0,
+    "lr_schedule": "cosine",
+    "warmup_epochs": 0,
+    "min_lr_ratio": 0.0,
+    "selection_window": 1,
+    "save_checkpoint": false
+  },
+  "model_configuration": {
+    "vocab_size": 3418,
+    "max_seq_len": 200,
+    "hidden_dim": 384,
+    "num_layers": 4,
+    "num_heads": 8,
+    "feed_forward_dim": 1024,
+    "dropout": 0.2,
+    "pad_token_id": 0,
+    "causal": true
+  },
+  "data": {
+    "sequences": 6040,
+    "training_windows": 6040,
+    "supervised_targets_per_epoch": 642719,
+    "training_batches_per_epoch": 95,
+    "validation_samples": 6040
+  },
+  "files": {
+    "checkpoint": null,
+    "epoch_history": "results/fast_trim_only_s42/training_history.csv",
+    "run_summary": "results/fast_trim_only_s42/run_summary.json",
+    "config": "results/fast_trim_only_s42/config.yaml"
+  }
+}

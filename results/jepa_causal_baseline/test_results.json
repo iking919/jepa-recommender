@@ -3,8 +3,8 @@
   "checkpoint": "checkpoints/jepa_causal_baseline/jepa_causal_baseline_best.pt",
   "metrics": {
     "HR@5": 0.15447020530700684,
-    "NDCG@5": 0.1107684075832367,
+    "NDCG@5": 0.11091220378875732,
     "HR@10": 0.19354304671287537,
-    "NDCG@10": 0.12340675294399261
+    "NDCG@10": 0.12355677783489227
   }
 }
