@@ -16,7 +16,7 @@ from src.data.datasets import JEPADataset
 from src.evaluation.evaluate import evaluate_jepa
 from src.models import JEPA
 from src.utils.checkpointing import load_checkpoint
-from src.utils.config import load_config
+from src.utils.config import add_config_args, load_config_from_args
 from src.utils.logging import setup_logging
 
 
@@ -24,21 +24,19 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Evaluate a trained JEPA model on the test set."
     )
-    parser.add_argument(
-        "--config",
-        required=True,
-        help="Path to the JEPA YAML configuration.",
-    )
+    add_config_args(parser)
     parser.add_argument(
         "--checkpoint",
-        required=True,
-        help="Path to the trained JEPA checkpoint.",
+        default=None,
+        help="Path to the trained JEPA checkpoint. Defaults to the run's "
+             "own checkpoint: checkpoints/<dataset>/<experiment>/"
+             "<experiment>_best.pt",
     )
     args = parser.parse_args()
 
     setup_logging()
 
-    config = load_config(args.config)
+    config = load_config_from_args(args)
     model_config = config["model"]
     data_config = config["data"]
     training_config = config["training"]
@@ -84,7 +82,12 @@ def main() -> None:
         causal=model_config.get("causal", False),
     ).to(device)
 
-    checkpoint = load_checkpoint(args.checkpoint, map_location=device)
+    checkpoint_path = Path(
+        args.checkpoint
+        or Path(output_config["checkpoint_dir"])
+        / output_config["best_checkpoint_name"]
+    )
+    checkpoint = load_checkpoint(checkpoint_path, map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])
 
     metrics = evaluate_jepa(
@@ -110,7 +113,8 @@ def main() -> None:
         json.dumps(
             {
                 "model": "JEPA",
-                "checkpoint": str(args.checkpoint),
+                "dataset": config["dataset"],
+                "checkpoint": str(checkpoint_path),
                 "metrics": metrics,
             },
             indent=2,

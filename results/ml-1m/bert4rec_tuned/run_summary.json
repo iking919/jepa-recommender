@@ -1,0 +1,34 @@
+{
+  "model": "BERT4Rec",
+  "experiment_name": "bert4rec_tuned",
+  "dataset": "MovieLens-1M",
+  "run_start": "2026-10-13T21:26:45.284348",
+  "run_end": "2026-10-13T21:30:56.720986",
+  "device": "cuda",
+  "seed": 42,
+  "configured_epochs": 150,
+  "completed_epochs": 150,
+  "best_epoch": 101,
+  "best_validation_metrics": {
+    "epoch": 101,
+    "loss": 5.196598452763841,
+    "learning_rate": 0.0002485766303603006,
+    "HR@5": 0.19552980132450332,
+    "HR@10": 0.28741721854304636,
+    "NDCG@5": 0.1319801600142092,
+    "NDCG@10": 0.16153705444791597,
+    "epoch_time_seconds": 1.627908576047048
+  },
+  "timing": {
+    "total_training_time_seconds": 251.43662655819207,
+    "total_training_time_minutes": 4.190610442636535,
+    "average_epoch_time_seconds": 1.676244177054614
+  },
+  "model_parameters": {
+    "trainable": 1300570
+  },
+  "files": {
+    "checkpoint": "checkpoints/ml-1m/bert4rec_tuned/bert4rec_tuned_best.pt",
+    "training_history": "results/ml-1m/bert4rec_tuned/training_history.csv"
+  }
+}

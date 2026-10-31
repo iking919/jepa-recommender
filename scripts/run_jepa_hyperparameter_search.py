@@ -1,14 +1,16 @@
 """Compact, resumable hyperparameter search for causal one-pass JEPA.
 
-Writes only these files to results/jepa_grid_search/:
+Writes these files to results/<dataset>/jepa_grid_search/ (override with
+--output-dir):
     search_summary.csv
     config_summary.csv
     grid_search_report.json
 
-No per-trial directories, YAML files, checkpoints, or run-summary files are
-created by this script. The trainer must respect training.save_checkpoint=False
-and must not independently write other artifacts if strict compact output is
-required.
+Per-trial artifacts (the trainer's history/summary/config files) are written
+to a single reused ``_scratch/`` folder inside that directory, so a search can
+never overwrite a real experiment under results/<dataset>/<experiment>/.
+Checkpoints are not saved unless --save-checkpoints is given (then they go to
+``_scratch/checkpoints`` and are overwritten by each trial).
 
 Resume is supported from the aggregate grid_search_report.json report.
 """
@@ -33,6 +35,9 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.utils.config import load_config  # noqa: E402
+from src.utils.paths import scratch_dir, search_dir  # noqa: E402
 
 LOGGER = logging.getLogger("jepa_hyperparameter_search")
 
@@ -113,16 +118,6 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
         f.write("\n")
 
 
-def load_config(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as f:
-        config = yaml.safe_load(f)
-    if not isinstance(config, dict):
-        raise ValueError(f"Expected a YAML mapping in {path}")
-    for section in ("model", "training", "output"):
-        config.setdefault(section, {})
-    return config
-
-
 def apply_nested(config: dict[str, Any], path: tuple[str, ...], value: Any) -> None:
     node = config
     for key in path[:-1]:
@@ -144,6 +139,7 @@ def make_trial_config(
     params: dict[str, Any],
     seed: int,
     save_checkpoints: bool,
+    scratch: Path,
 ) -> dict[str, Any]:
     config = copy.deepcopy(base)
     config["seed"] = seed
@@ -156,11 +152,13 @@ def make_trial_config(
     training = config["training"]
     training["save_checkpoint"] = bool(save_checkpoints)
 
-    # Do not create a trial-specific results directory.
-    # Keep the configured base output paths intact, but disable checkpoint
-    # paths when checkpoint saving is disabled.
+    # Never write into the base experiment's results/checkpoint folders:
+    # every trial reuses one scratch folder inside the search directory.
     output = config["output"]
-    if not save_checkpoints:
+    output["results_dir"] = scratch.as_posix()
+    if save_checkpoints:
+        output["checkpoint_dir"] = (scratch / "checkpoints").as_posix()
+    else:
         output["checkpoint_dir"] = None
         output["best_checkpoint_name"] = None
 
@@ -284,7 +282,8 @@ def run(args: argparse.Namespace) -> int:
     if not config_path.is_file():
         raise FileNotFoundError(f"Config not found: {config_path}")
 
-    base = load_config(config_path)
+    base = load_config(config_path, dataset=args.dataset)
+    dataset = base["dataset"]
     if not base.get("model", {}).get("causal", False):
         raise SystemExit(
             "Base config must set model.causal: true for train_jepa_causal."
@@ -315,11 +314,13 @@ def run(args: argparse.Namespace) -> int:
                     f"hidden_dim={hidden} must be divisible by num_heads={heads}"
                 )
 
+    output_dir = args.output_dir or search_dir(dataset, "jepa_grid_search")
     out_dir = (
-        args.output_dir
-        if args.output_dir.is_absolute()
-        else PROJECT_ROOT / args.output_dir
+        output_dir
+        if output_dir.is_absolute()
+        else PROJECT_ROOT / output_dir
     )
+    scratch = scratch_dir(out_dir)
     seeds = list(dict.fromkeys(args.seeds))
     params_list = [
         dict(zip(space.keys(), values))
@@ -328,6 +329,7 @@ def run(args: argparse.Namespace) -> int:
     plan = [(params, seed) for params in params_list for seed in seeds]
 
     LOGGER.info("Config: %s", config_path)
+    LOGGER.info("Dataset: %s", dataset)
     LOGGER.info("Output: %s", out_dir)
     LOGGER.info(
         "Configurations=%d | seeds=%s | total trials=%d",
@@ -403,12 +405,10 @@ def run(args: argparse.Namespace) -> int:
         trials.append(record)
         try:
             trial_config = make_trial_config(
-                base, params, seed, args.save_checkpoints
+                base, params, seed, args.save_checkpoints, scratch
             )
 
-            # Keep trainer outputs away from the compact report directory.
-            # If the trainer writes files regardless, configure its output
-            # paths in the YAML or trainer to use a separate scratch location.
+            # Trainer artifacts go to <out_dir>/_scratch (reused per trial).
             LOGGER.info("[%d/%d] Training %s", i, len(plan), name)
             summary = train(trial_config)
             metrics, score = metric_summary(summary)
@@ -461,8 +461,16 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Compact hyperparameter search for causal one-pass JEPA"
     )
-    p.add_argument("--config", type=Path, default=Path("configs/jepa_tuned.yaml"))
-    p.add_argument("--output-dir", type=Path, default=Path("results/jepa_grid_search"))
+    p.add_argument("--config", type=Path, default=Path("configs/ml-1m/jepa_tuned.yaml"))
+    p.add_argument(
+        "--dataset", default=None,
+        help="Dataset (a file in configs/datasets/). Overrides the config's "
+             "`dataset:` key.",
+    )
+    p.add_argument(
+        "--output-dir", type=Path, default=None,
+        help="Default: results/<dataset>/jepa_grid_search",
+    )
     p.add_argument("--seeds", nargs="+", type=int, default=[42])
     p.add_argument("--lr", nargs="+", type=float, default=None)
     p.add_argument("--ema", nargs="+", type=float, default=None)

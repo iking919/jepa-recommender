@@ -10,6 +10,8 @@ This directory contains command-line entry points for running project workflows 
 | `run_jepa_evaluation.py` | Evaluate a JEPA checkpoint |
 | `run_bert4rec_hyperparameter_search.py` | Run BERT4Rec hyperparameter search |
 | `run_jepa_hyperparameter_search.py` | Run JEPA Causal hyperparameter search |
+| `run_cross_seed_comparison.py` | Train one config over several seeds |
+| `migrate_results_layout.py` | One-time move of old `results/` and `checkpoints/` into `<dataset>/` folders |
 
 
 ## Dataset Preparation
@@ -21,40 +23,14 @@ python scripts/download_ml1m.py
 python scripts/preprocess_ml1m.py
 ```
 
-## BERT4Rec Evaluation
+## Evaluation
 
-Baseline:
-
-```bash
-python -m scripts.run_bert4rec_evaluation \
-    --config configs/bert4rec_baseline.yaml \
-    --checkpoint checkpoints/bert4rec_baseline/bert4rec_baseline_best.pt
-```
-
-Tuned:
+All entry points take `--config`, plus optional `--dataset`, `--set`, and `--name`. `--checkpoint` defaults to `checkpoints/<dataset>/<experiment>/<experiment>_best.pt`.
 
 ```bash
-python -m scripts.run_bert4rec_evaluation \
-    --config configs/bert4rec_tuned.yaml \
-    --checkpoint checkpoints/bert4rec_tuned/bert4rec_tuned_best.pt
-```
-
-## JEPA Evaluation
-
-Baseline:
-
-```bash
-python -m scripts.run_jepa_evaluation \
-    --config configs/jepa_baseline.yaml \
-    --checkpoint checkpoints/jepa_baseline/jepa_baseline_best.pt
-```
-
-Tuned:
-
-```bash
-python -m scripts.run_jepa_evaluation \
-    --config configs/jepa_tuned.yaml \
-    --checkpoint checkpoints/jepa_tuned/jepa_tuned_best.pt
+python -m scripts.run_bert4rec_evaluation --config configs/ml-1m/bert4rec_tuned.yaml
+python -m scripts.run_jepa_evaluation --config configs/ml-1m/jepa_tuned.yaml
+python -m scripts.run_jepa_evaluation --config configs/ml-1m/jepa_causal_tuned.yaml --dataset amazon_beauty
 ```
 
 ## Hyperparameter Search
@@ -62,15 +38,17 @@ python -m scripts.run_jepa_evaluation \
 BERT4Rec:
 
 ```bash
-python scripts/run_bert4rec_hyperparameter_search.py \
-    --config configs/bert4rec_baseline.yaml
+python -m scripts.run_bert4rec_hyperparameter_search \
+    --config configs/ml-1m/bert4rec_baseline.yaml --dataset amazon_beauty
 ```
 
 JEPA:
 
 ```bash
-python scripts/run_jepa_hyperparameter_search.py \
-    --config configs/jepa_baseline.yaml
+python -m scripts.run_jepa_hyperparameter_search \
+    --config configs/ml-1m/jepa_causal_tuned.yaml --dataset amazon_beauty
+
+# reports go to results/<dataset>/<model>_grid_search/ unless --output-dir is given
 ```
 
 ## General Execution

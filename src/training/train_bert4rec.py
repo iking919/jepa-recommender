@@ -3,8 +3,8 @@
 Training pipeline for BERT4Rec.
 
 Normal training:
-    checkpoints/<experiment>/  -> best model checkpoint
-    results/<experiment>/      -> training history and run summary
+    checkpoints/<dataset>/<experiment>/  -> best model checkpoint
+    results/<dataset>/<experiment>/      -> training history, run summary, config
 
 Hyperparameter search:
     Call train_bert4rec(config_dict, save_artifacts=False) to train without
@@ -33,8 +33,14 @@ from src.data.datasets import BERT4RecDataset
 from src.evaluation.evaluate import evaluate_bert4rec
 from src.models.bert4rec import BERT4Rec
 from src.utils.checkpointing import save_checkpoint
-from src.utils.config import load_config
+from src.utils.config import (
+    add_config_args,
+    load_config,
+    load_config_from_args,
+    save_resolved_config,
+)
 from src.utils.logging import setup_logging
+from src.utils.paths import resolve_output
 from src.utils.reproducibility import set_seed
 
 
@@ -110,6 +116,8 @@ def train_bert4rec(
         config = deepcopy(config_path)
     else:
         config = load_config(str(config_path))
+
+    resolve_output(config)  # no-op for configs built by load_config
 
     set_seed(config.get("seed", 42))
 
@@ -270,6 +278,9 @@ def train_bert4rec(
         )
         history_path = results_dir / "training_history.csv"
         summary_path = results_dir / "run_summary.json"
+
+        # Save the fully resolved config next to the results.
+        save_resolved_config(config, results_dir)
     else:
         best_checkpoint_path = None
         history_path = None
@@ -489,16 +500,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Train a BERT4Rec sequential recommender."
     )
-    parser.add_argument(
-        "--config",
-        type=str,
-        required=True,
-        help="Path to the YAML experiment configuration.",
-    )
+    add_config_args(parser)
     args = parser.parse_args()
 
     setup_logging()
-    train_bert4rec(args.config)
+    train_bert4rec(load_config_from_args(args))
 
 
 if __name__ == "__main__":

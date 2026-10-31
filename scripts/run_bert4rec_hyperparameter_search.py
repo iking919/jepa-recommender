@@ -3,7 +3,7 @@
 Compact BERT4Rec hyperparameter grid search.
 
 The search writes only aggregate reports to:
-    results/bert4rec_grid_search/
+    results/<dataset>/bert4rec_grid_search/
         search_summary.csv
         config_summary.csv
         grid_search_report.json
@@ -32,6 +32,7 @@ from typing import Any
 from src.training.train_bert4rec import train_bert4rec
 from src.utils.config import load_config
 from src.utils.logging import setup_logging
+from src.utils.paths import search_dir
 
 
 logger = logging.getLogger(__name__)
@@ -189,13 +190,17 @@ def save_reports(
 
 def run_search(
     config_path: str,
-    output_dir: Path,
+    output_dir: Path | None,
     *,
+    dataset: str | None = None,
     restart: bool = False,
 ) -> None:
     """Run the grid search, resuming completed trials unless restarted."""
 
-    base_config = load_config(config_path)
+    base_config = load_config(config_path, dataset=dataset)
+    if output_dir is None:
+        output_dir = search_dir(base_config["dataset"], "bert4rec_grid_search")
+    logger.info("Dataset: %s", base_config["dataset"])
     trials = build_trials()
 
     report_path = output_dir / "grid_search_report.json"
@@ -419,15 +424,24 @@ def main() -> None:
     parser.add_argument(
         "--config",
         type=str,
-        default="configs/bert4rec_tuned.yaml",
+        default="configs/ml-1m/bert4rec_tuned.yaml",
         help="Path to the base BERT4Rec YAML configuration.",
+    )
+
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default=None,
+        help="Dataset (a file in configs/datasets/). Overrides the config's "
+             "`dataset:` key.",
     )
 
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="results/bert4rec_grid_search",
-        help="Directory for aggregate search reports.",
+        default=None,
+        help="Directory for aggregate search reports. "
+             "Default: results/<dataset>/bert4rec_grid_search",
     )
 
     parser.add_argument(
@@ -442,7 +456,8 @@ def main() -> None:
 
     run_search(
         config_path=args.config,
-        output_dir=Path(args.output_dir),
+        output_dir=Path(args.output_dir) if args.output_dir else None,
+        dataset=args.dataset,
         restart=args.restart,
     )
 

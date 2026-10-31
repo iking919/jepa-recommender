@@ -1,0 +1,14 @@
+# Amazon Reviews 2023, All Beauty. Facts about the preprocessed dataset; these
+# win over the experiment config. Folder name must match
+# data/{raw,interim,processed}/<name>.
+#
+# vocab_size = max mapped item id + 1  (0 = PAD, 1 = MASK, items start at 2).
+# Items: 8607 -> ids 2..8608 -> vocab_size 8609
+# (see data/interim/amazon_beauty/item_id_mapping.csv).
+# max_seq_len matches MAX_SEQ_LEN in scripts/preprocess_amazon_beauty.py.
+name: amazon_beauty
+description: Amazon Reviews 2023 All Beauty, leave-last-two-out split
+
+model:
+  vocab_size: 8609
+  max_seq_len: 200

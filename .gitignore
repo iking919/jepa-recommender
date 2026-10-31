@@ -109,6 +109,9 @@ results/tmp/
 results/**/tensorboard/
 results/**/wandb/
 
+# Disposable per-trial files written by hyperparameter / seed searches.
+results/**/_scratch/
+
 # Temporary files
 *.tmp
 *.temp

@@ -39,9 +39,13 @@ from src.training.train_jepa import (
     validate,
 )
 from src.utils.checkpointing import save_checkpoint
-from src.utils.config import load_config
+from src.utils.config import (
+    add_config_args,
+    load_config_from_args,
+    save_resolved_config,
+)
 from src.utils.logging import setup_logging
-from src.utils.overrides import apply_name, apply_overrides
+from src.utils.paths import resolve_output
 from src.utils.reproducibility import set_seed
 from src.utils.schedules import lr_factor, trailing_mean
 
@@ -140,7 +144,10 @@ def train(config: dict) -> dict:
     data_config = config["data"]
     model_config = config["model"]
     training_config = config["training"]
-    output_config = config.setdefault("output", {})
+    # Fill any missing output paths (results/<dataset>/<experiment>, ...).
+    # A no-op for configs built by load_config; makes train(dict) safe too.
+    resolve_output(config)
+    output_config = config["output"]
 
     if not model_config.get("causal", False):
         raise ValueError(
@@ -360,15 +367,11 @@ def train(config: dict) -> dict:
 
     experiment_name = output_config["experiment_name"]
 
-    # Honor a custom results directory when one is provided.
-    # This allows grid-search trial results to live under:
-    # results/jepa_grid_search/<trial_name>/
-    configured_results_dir = output_config.get("results_dir")
-
-    if configured_results_dir:
-        results_dir = Path(configured_results_dir)
-    else:
-        results_dir = Path("results") / experiment_name
+    # results_dir / checkpoint_dir were resolved by resolve_output():
+    #   results/<dataset>/<experiment>   and
+    #   checkpoints/<dataset>/<experiment>
+    # Searches override them to point at a scratch folder instead.
+    results_dir = Path(output_config["results_dir"])
 
     # Always preserve experiment results.
     results_dir.mkdir(parents=True, exist_ok=True)
@@ -377,15 +380,12 @@ def train(config: dict) -> dict:
     # During grid search, training.save_checkpoint=false prevents even
     # creating a checkpoint directory.
     if save_checkpoint_enabled:
-        configured_checkpoint_dir = output_config.get("checkpoint_dir")
-
-        if configured_checkpoint_dir:
-            checkpoint_dir = Path(configured_checkpoint_dir)
-        else:
-            checkpoint_dir = Path("checkpoints") / experiment_name
-
+        checkpoint_dir = Path(output_config["checkpoint_dir"])
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        best_checkpoint_name = f"{experiment_name}_best.pt"
+        best_checkpoint_name = (
+            output_config.get("best_checkpoint_name")
+            or f"{experiment_name}_best.pt"
+        )
         best_checkpoint = checkpoint_dir / best_checkpoint_name
     else:
         checkpoint_dir = None
@@ -403,6 +403,9 @@ def train(config: dict) -> dict:
     output_config["results_dir"] = str(results_dir)
     output_config["best_checkpoint_name"] = best_checkpoint_name
     output_config["save_checkpoint"] = save_checkpoint_enabled
+
+    # Save the fully resolved config next to the results.
+    save_resolved_config(config, results_dir)
 
     logger.info("Experiment: %s", experiment_name)
     logger.info("Results directory: %s", results_dir)
@@ -690,46 +693,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Train a causal one-pass JEPA sequential recommender."
     )
-
-    parser.add_argument(
-        "--config",
-        type=str,
-        required=True,
-        help="Path to the YAML experiment configuration.",
-    )
-
-    parser.add_argument(
-        "--set",
-        dest="overrides",
-        action="append",
-        default=[],
-        metavar="KEY=VALUE",
-        help=(
-            "Override a config value, e.g. "
-            "--set training.learning_rate=0.001. "
-            "Repeatable. Use +KEY=VALUE to add a new key."
-        ),
-    )
-
-    parser.add_argument(
-        "--name",
-        default=None,
-        help=(
-            "Experiment name; redirects artifacts to "
-            "checkpoints/<name> and results/<name> unless "
-            "a custom output.results_dir is configured."
-        ),
-    )
-
+    add_config_args(parser)
     args = parser.parse_args()
 
-    config = apply_overrides(
-        load_config(args.config),
-        args.overrides,
-    )
-
-    if args.name:
-        config = apply_name(config, args.name)
+    config = load_config_from_args(args)
 
     setup_logging()
     train(config)

@@ -139,14 +139,14 @@ For fair comparisons, use consistent data splits, candidate-item handling, ranki
 
 ```text
 jepa-recommender/
-├── configs/                       # Experiment configurations
+├── configs/                       # Experiment configurations: configs/<dataset>/<experiment>.yaml
+│   └── datasets/                  # Per-dataset facts (vocab size, sequence length)
 ├── data/
 │   ├── raw/                       # Original dataset
 │   ├── interim/                   # Intermediate preprocessing artifacts
 │   └── processed/                 # Model-ready datasets
-├── checkpoints/                   # Trained model weights
-├── results/                       # Metrics, histories, and summaries
-│   └── jepa_grid_search/          # Causal JEPA hyperparameter-search results
+├── checkpoints/                   # Trained weights: checkpoints/<dataset>/<experiment>/
+├── results/                       # Metrics and summaries: results/<dataset>/<experiment>/
 ├── notebooks/                     # Exploratory analysis and experiments
 ├── scripts/                       # Dataset, search, and evaluation entry points
 └── src/
@@ -229,7 +229,7 @@ Refer to `data/README.md` and the available scripts for the exact data preparati
 
 ## Experiment Configurations
 
-Experiment parameters are stored in YAML files under `configs/`.
+Experiment parameters are stored in YAML files under `configs/<dataset>/`, e.g. `configs/ml-1m/jepa_causal_tuned.yaml`.
 
 | Configuration | Description |
 |---|---|
@@ -240,7 +240,34 @@ Experiment parameters are stored in YAML files under `configs/`.
 | `jepa_causal_baseline.yaml` | Baseline causal, one-pass JEPA experiment |
 | `jepa_causal_tuned.yaml` | Tuned causal, one-pass JEPA experiment |
 
-Each configuration specifies dataset paths, model architecture, training parameters, and output locations.
+Each configuration specifies model architecture and training parameters. Dataset-specific facts and output locations are not hard-coded in them; they are filled in from the dataset (see below).
+
+### Datasets and Output Layout
+
+A run is defined by an experiment config plus a dataset. The dataset is the folder the config sits in (`configs/ml-1m/...` runs on `ml-1m`). `--dataset` overrides it on the command line, so a config can be reused on another dataset as is:
+
+```bash
+python -m src.training.train_jepa_causal --config configs/ml-1m/jepa_causal_tuned.yaml                          # ml-1m (from the folder)
+python -m src.training.train_jepa_causal --config configs/ml-1m/jepa_causal_tuned.yaml --dataset amazon_beauty  # same config, other dataset
+```
+
+Per-dataset facts (`vocab_size`, `max_seq_len`) live in `configs/datasets/<dataset>.yaml` and take precedence over the experiment config. Data paths in experiment configs use a `{dataset}` placeholder, for example `data/processed/{dataset}/jepa/validation.parquet`. A path that points at another dataset's folder is rejected rather than silently used.
+
+Every output path is derived from the dataset and experiment name by `src/utils/paths.py`:
+
+```text
+results/<dataset>/<experiment>/                  training_history.csv, run_summary.json, config.yaml, test_results.json
+results/<dataset>/<search_name>/                 grid-search and seed-search reports
+checkpoints/<dataset>/<experiment>/<experiment>_best.pt
+```
+
+When a dataset needs its own hyperparameters, copy the config into that dataset's folder (`configs/amazon_beauty/jepa_causal_tuned.yaml`) and edit it there; it then runs on `amazon_beauty` without `--dataset`. Results never collide because outputs are keyed by dataset too.
+
+Use `--name <experiment>` to write a run elsewhere without editing the YAML, and `--set key=value` to override any config value.
+
+To add a dataset, preprocess it into `data/processed/<name>/{bert4rec,jepa}/`, then copy `configs/datasets/ml-1m.yaml` to `configs/datasets/<name>.yaml` and set `name` and `vocab_size` (largest mapped item id + 1). Optionally copy any experiment configs you want to tune into `configs/<name>/`.
+
+If you have results or configs from before this layout existed, run `python -m scripts.migrate_results_layout` (dry run) and then add `--apply`. It moves `results/`, `checkpoints/`, and `configs/*.yaml` into `<dataset>/` folders and updates paths stored inside them.
 
 The causal JEPA configurations use the causal training implementation and should be treated as separate experiments from the standard JEPA configurations.
 
@@ -252,45 +279,45 @@ Run commands from the repository root. Ensure the required processed datasets ar
 
 ```bash
 python -m src.training.train_bert4rec \
-  --config configs/bert4rec_baseline.yaml
+  --config configs/ml-1m/bert4rec_baseline.yaml
 ```
 
 ### BERT4Rec Tuned
 
 ```bash
 python -m src.training.train_bert4rec \
-  --config configs/bert4rec_tuned.yaml
+  --config configs/ml-1m/bert4rec_tuned.yaml
 ```
 
 ### Standard JEPA Baseline
 
 ```bash
 python -m src.training.train_jepa \
-  --config configs/jepa_baseline.yaml
+  --config configs/ml-1m/jepa_baseline.yaml
 ```
 
 ### Standard JEPA Tuned
 
 ```bash
 python -m src.training.train_jepa \
-  --config configs/jepa_tuned.yaml
+  --config configs/ml-1m/jepa_tuned.yaml
 ```
 
 ### Causal JEPA Baseline
 
 ```bash
 python -m src.training.train_jepa_causal \
-  --config configs/jepa_causal_baseline.yaml
+  --config configs/ml-1m/jepa_causal_baseline.yaml
 ```
 
 ### Causal JEPA Tuned
 
 ```bash
 python -m src.training.train_jepa_causal \
-  --config configs/jepa_causal_tuned.yaml
+  --config configs/ml-1m/jepa_causal_tuned.yaml
 ```
 
-Training saves model checkpoints under `checkpoints/` and experiment outputs under the corresponding `results/` directory, as specified by the configuration and training pipeline.
+Training saves the best checkpoint to `checkpoints/<dataset>/<experiment>/` and history, summary, and the resolved config to `results/<dataset>/<experiment>/`.
 
 ## Hyperparameter Search
 
@@ -301,19 +328,20 @@ The search is launched using each baseline configuration:
 BERT4Rec:
 ```bash
 python -m scripts.run_bert4rec_hyperparameter_search \
-    --config configs/bert4rec_tuned.yaml \
-    --output-dir results/bert4rec_grid_search
-    --allow-existing
+    --config configs/ml-1m/bert4rec_tuned.yaml \
+    --dataset amazon_beauty
 ```
 
 JEPA Causal:
 
 ```bash
 python -m scripts.run_jepa_hyperparameter_search \
-  --config configs/jepa_causal_tuned.yaml \
-  --output-dir results/jepa_grid_search \
+  --config configs/ml-1m/jepa_causal_tuned.yaml \
+  --dataset amazon_beauty \
   --allow-existing
 ```
+
+Reports default to `results/<dataset>/<model>_grid_search/`; pass `--output-dir` to change that. `--dataset` can be omitted to use the config's own dataset.
 
 The baseline configuration provides the starting architecture and training setup. The search script generates trial-specific configurations, applies the candidate optimization settings, and records the resulting validation performance.
 
@@ -322,33 +350,24 @@ The baseline configuration provides the starting architecture and training setup
 Search outputs are organized separately from ordinary training results:
 
 ```text
-results/
-└── <model>_grid_search/
-    ├── search_summary.csv
-    ├── grid_search_report.json
-    ├── <trial_name_1>/
-    │   ├── config.yaml
-    │   ├── training_history.csv
-    │   └── run_summary.json
-    └── <trial_name_2>/
-        ├── config.yaml
-        ├── training_history.csv
-        └── run_summary.json
+results/<dataset>/<model>_grid_search/
+├── search_summary.csv
+├── config_summary.csv
+├── grid_search_report.json
+└── _scratch/            # JEPA only: the trainer's per-trial files, overwritten each trial
 ```
-
-The exact number and names of trials depend on the parameter grid defined in the search script.
 
 - `search_summary.csv` contains the aggregate results for individual trials.
 - `grid_search_report.json` contains the machine-readable search report.
-- Each trial directory records the configuration used, training history, and run summary.
+- `_scratch/` exists so a search can never overwrite a real experiment's results or checkpoint. It is git-ignored and safe to delete.
 
-The search is intended to avoid saving a model checkpoint for every trial, while preserving the information needed to compare configurations. Verify that checkpoint saving is disabled in the search script and that the trainer honors that setting.
+No checkpoint is saved per trial. For JEPA, pass `--save-checkpoints` to keep one (it goes to `_scratch/checkpoints` and is overwritten by the next trial).
 
 ### Selecting the Tuned Configuration
 
 Use validation performance, such as validation NDCG@10, to compare candidate configurations and select the optimization settings for the tuned causal JEPA experiment.
 
-The selected settings should then be recorded in `configs/bert4rec_tuned.yaml` and `configs/jepa_causal_tuned.yaml` respectively. Keep the baseline configuration unchanged so the original settings remain available for comparison.
+The selected settings should then be recorded in `configs/ml-1m/bert4rec_tuned.yaml` and `configs/ml-1m/jepa_causal_tuned.yaml` respectively. Keep the baseline configuration unchanged so the original settings remain available for comparison.
 
 For reproducibility, retain the aggregate search results and the configuration for each trial. Report the final held-out test metrics only after selecting the configuration using validation data.
 
@@ -368,8 +387,8 @@ JEPA Causal
 
 ```bash
 python -m scripts.run_cross_seed_comparison \
-  --config configs/jepa_causal_tuned.yaml \
-  --output-dir results/jepa_seed_search \
+  --config configs/ml-1m/jepa_causal_tuned.yaml \
+  --dataset amazon_beauty \
   --allow-existing
 ```
 
@@ -377,10 +396,12 @@ BERT4Rec
 
 ```bash
 python -m scripts.run_cross_seed_comparison \
-  --config configs/bert4rec_tuned.yaml \
-  --output-dir results/bert4rec_seed_search \
+  --config configs/ml-1m/bert4rec_tuned.yaml \
+  --dataset amazon_beauty \
   --allow-existing
 ```
+
+Reports default to `results/<dataset>/<model>_seed_search/`. Per-seed JEPA trainer files go to its `_scratch/` folder and no checkpoints are saved, so seed runs never overwrite `results/<dataset>/<experiment>/`.
 
 By default, the script evaluates five seeds (`42`, `123`, `456`, `789`, and `2026`). Use `--seeds` to specify a different set. The original YAML configuration files remain unchanged, and successful runs can be resumed from existing reports.
 
@@ -388,66 +409,45 @@ By default, the script evaluates five seeds (`42`, `123`, `456`, `789`, and `202
 
 Evaluation uses a trained checkpoint and the corresponding experiment configuration. Run the commands from the repository root so that project imports and relative paths resolve correctly.
 
-### BERT4Rec Baseline
+`--config`, `--dataset`, `--set`, and `--name` work as in training. `--checkpoint` is optional and defaults to `checkpoints/<dataset>/<experiment>/<experiment>_best.pt`, so evaluating a run takes the same arguments that trained it. Test metrics are written to `results/<dataset>/<experiment>/test_results.json`.
 
 ```bash
-python -m scripts.run_bert4rec_evaluation \
-  --config configs/bert4rec_baseline.yaml \
-  --checkpoint checkpoints/bert4rec_baseline/bert4rec_baseline_best.pt
-```
+# BERT4Rec
+python -m scripts.run_bert4rec_evaluation --config configs/ml-1m/bert4rec_tuned.yaml
+python -m scripts.run_bert4rec_evaluation --config configs/ml-1m/bert4rec_baseline.yaml
 
-### BERT4Rec Tuned
+# Standard JEPA
+python -m scripts.run_jepa_evaluation --config configs/ml-1m/jepa_tuned.yaml
+python -m scripts.run_jepa_evaluation --config configs/ml-1m/jepa_baseline.yaml
 
-```bash
-python -m scripts.run_bert4rec_evaluation \
-  --config configs/bert4rec_tuned.yaml \
-  --checkpoint checkpoints/bert4rec_tuned/bert4rec_tuned_best.pt
-```
+# Causal JEPA
+python -m scripts.run_jepa_evaluation --config configs/ml-1m/jepa_causal_tuned.yaml
+python -m scripts.run_jepa_evaluation --config configs/ml-1m/jepa_causal_baseline.yaml
 
-### Standard JEPA Baseline
+# Any of them on another dataset
+python -m scripts.run_jepa_evaluation --config configs/ml-1m/jepa_causal_tuned.yaml --dataset amazon_beauty
 
-```bash
-python -m scripts.run_jepa_evaluation \
-  --config configs/jepa_baseline.yaml \
-  --checkpoint checkpoints/jepa_baseline/jepa_baseline_best.pt
-```
-
-### Standard JEPA Tuned
-
-```bash
-python -m scripts.run_jepa_evaluation \
-  --config configs/jepa_tuned.yaml \
-  --checkpoint checkpoints/jepa_tuned/jepa_tuned_best.pt
-```
-
-### Causal JEPA Baseline
-
-```bash
-python -m scripts.run_jepa_evaluation \
-  --config configs/jepa_causal_baseline.yaml \
-  --checkpoint checkpoints/jepa_causal_baseline/jepa_causal_baseline_best.pt
-```
-
-### Causal JEPA Tuned
-
-```bash
-python -m scripts.run_jepa_evaluation \
-  --config configs/jepa_causal_tuned.yaml \
-  --checkpoint checkpoints/jepa_causal_tuned/jepa_causal_tuned_best.pt
+# An explicit checkpoint
+python -m scripts.run_jepa_evaluation --config configs/ml-1m/jepa_causal_tuned.yaml --checkpoint path/to/model.pt
 ```
 
 ## Results and Experiment Tracking
 
-Each experiment has a dedicated results directory. For example:
+Each experiment has a dedicated results directory per dataset. For example:
 
 ```text
 results/
-├── bert4rec_baseline/
-├── bert4rec_tuned/
-├── jepa_baseline/
-├── jepa_tuned/
-├── jepa_causal_baseline/
-└── jepa_causal_tuned/
+├── ml-1m/
+│   ├── bert4rec_baseline/
+│   ├── bert4rec_tuned/
+│   ├── jepa_baseline/
+│   ├── jepa_tuned/
+│   ├── jepa_causal_baseline/
+│   ├── jepa_causal_tuned/
+│   ├── jepa_grid_search/
+│   └── jepa_seed_search/
+└── amazon_beauty/
+    └── ...                      # same experiment names
 ```
 
 Depending on the experiment pipeline, results may include:
@@ -457,7 +457,7 @@ Depending on the experiment pipeline, results may include:
 - `run_summary.json`: Configuration and run-level summary.
 - `test_results.json`: Held-out test metrics, if produced by the evaluation pipeline.
 
-The hyperparameter search directory contains aggregate trial results and trial-specific output folders.
+Search directories contain aggregate reports only (plus the disposable `_scratch/` folder).
 
 Training time, validation time, epoch duration, and peak GPU memory are useful for assessing computational cost alongside recommendation metrics. Preserve the hardware and software environment details when reporting performance.
 

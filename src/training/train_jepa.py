@@ -22,8 +22,14 @@ from src.evaluation.evaluate import evaluate_jepa
 from src.models.jepa import JEPA
 from src.training.ema import EMA
 from src.utils.checkpointing import save_checkpoint
-from src.utils.config import load_config
+from src.utils.config import (
+    add_config_args,
+    load_config,
+    load_config_from_args,
+    save_resolved_config,
+)
 from src.utils.logging import setup_logging
+from src.utils.paths import resolve_output
 from src.utils.reproducibility import set_seed
 
 
@@ -204,6 +210,7 @@ def train(config: dict) -> dict:
     data_config = config["data"]
     model_config = config["model"]
     training_config = config["training"]
+    resolve_output(config)  # no-op for configs built by load_config
     output_config = config["output"]
 
     train_df = pd.read_parquet(data_config["train_path"])
@@ -327,6 +334,9 @@ def train(config: dict) -> dict:
     )
     history_path = results_dir / "training_history.csv"
     summary_path = results_dir / "run_summary.json"
+
+    # Save the fully resolved config next to the results.
+    save_resolved_config(config, results_dir)
 
     best_ndcg10 = float("-inf")
     best_epoch = 0
@@ -553,16 +563,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Train a JEPA sequential recommender."
     )
-    parser.add_argument(
-        "--config",
-        type=str,
-        required=True,
-        help="Path to the YAML experiment configuration.",
-    )
+    add_config_args(parser)
     args = parser.parse_args()
 
     setup_logging()
-    train(load_config(args.config))
+    train(load_config_from_args(args))
 
 
 if __name__ == "__main__":
