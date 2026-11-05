@@ -1,0 +1,34 @@
+{
+  "model": "BERT4Rec",
+  "experiment_name": "bert4rec_baseline",
+  "dataset": "MovieLens-1M",
+  "run_start": "2026-11-05T12:07:45.032329",
+  "run_end": "2026-11-05T12:15:17.045842",
+  "device": "cuda",
+  "seed": 42,
+  "configured_epochs": 150,
+  "completed_epochs": 150,
+  "best_epoch": 34,
+  "best_validation_metrics": {
+    "epoch": 34,
+    "loss": 7.777500740660547,
+    "learning_rate": 0.0001,
+    "HR@5": 0.0070409486751899205,
+    "HR@10": 0.010746711135816194,
+    "NDCG@5": 0.00520058715760981,
+    "NDCG@10": 0.006415230090487034,
+    "epoch_time_seconds": 2.8864758745767176
+  },
+  "timing": {
+    "total_training_time_seconds": 452.0134948240593,
+    "total_training_time_minutes": 7.533558247067655,
+    "average_epoch_time_seconds": 3.013423298827062
+  },
+  "model_parameters": {
+    "trainable": 2634657
+  },
+  "files": {
+    "checkpoint": "checkpoints/amazon_beauty/bert4rec_baseline/bert4rec_baseline_best.pt",
+    "training_history": "results/amazon_beauty/bert4rec_baseline/training_history.csv"
+  }
+}

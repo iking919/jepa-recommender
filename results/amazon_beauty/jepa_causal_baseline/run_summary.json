@@ -1,0 +1,78 @@
+{
+  "model": "JEPA (causal one-pass)",
+  "experiment_name": "jepa_causal_baseline",
+  "dataset": "MovieLens-1M",
+  "run_start": "2026-11-05T12:16:39.168398",
+  "run_end": "2026-11-05T12:21:03.134883",
+  "device": "cuda",
+  "seed": 42,
+  "configured_epochs": 150,
+  "completed_epochs": 75,
+  "best_epoch": 55,
+  "best_metrics": {
+    "HR@5": 0.005188067443668842,
+    "HR@10": 0.007967389188706875,
+    "NDCG@5": 0.004763816948980093,
+    "NDCG@10": 0.005632490385323763
+  },
+  "best_epoch_loss": 0.7611130801114169,
+  "best_selection_score": 0.005632490385323763,
+  "timing": {
+    "total_training_time_seconds": 263.96646697074175,
+    "total_training_time_minutes": 4.399441116179029,
+    "total_train_only_seconds": 41.535525244195014,
+    "time_to_best_epoch_seconds": 184.11210347572342,
+    "average_epoch_time_seconds": 3.5195528929432234,
+    "average_train_time_seconds": 0.5538070032559336,
+    "average_validation_time_seconds": 2.782169266293446
+  },
+  "hardware": {
+    "device": "cuda",
+    "gpu": "NVIDIA A100 80GB PCIe",
+    "peak_gpu_memory_gb": 0.7951688766479492
+  },
+  "model_parameters": {
+    "total": 8143616,
+    "trainable": 5939712
+  },
+  "training_configuration": {
+    "batch_size": 64,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "mixed_precision": true,
+    "amp_dtype": "bfloat16",
+    "compile": false,
+    "ema_decay": 0.996,
+    "patience": 20,
+    "window_stride": 100,
+    "lr_schedule": "constant",
+    "warmup_epochs": 0,
+    "min_lr_ratio": 0.0,
+    "selection_window": 1,
+    "save_checkpoint": true
+  },
+  "model_configuration": {
+    "hidden_dim": 256,
+    "num_layers": 4,
+    "num_heads": 8,
+    "feed_forward_dim": 1024,
+    "dropout": 0.2,
+    "pad_token_id": 0,
+    "causal": true,
+    "vocab_size": 8609,
+    "max_seq_len": 200
+  },
+  "data": {
+    "sequences": 2074,
+    "training_windows": 2074,
+    "supervised_targets_per_epoch": 7535,
+    "training_batches_per_epoch": 33,
+    "validation_samples": 5397
+  },
+  "files": {
+    "checkpoint": "checkpoints/amazon_beauty/jepa_causal_baseline/jepa_causal_baseline_best.pt",
+    "epoch_history": "results/amazon_beauty/jepa_causal_baseline/training_history.csv",
+    "run_summary": "results/amazon_beauty/jepa_causal_baseline/run_summary.json",
+    "config": "results/amazon_beauty/jepa_causal_baseline/config.yaml"
+  }
+}
