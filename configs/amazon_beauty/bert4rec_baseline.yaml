@@ -1,0 +1,41 @@
+# BERT4Rec baseline configuration.
+#
+# This configuration defines the reproducible baseline experiment for
+# MovieLens-1M. Checkpoints and experiment results are stored separately.
+
+seed: 42
+
+device: "cuda"
+
+data:
+  train_sequences_path: "data/processed/{dataset}/bert4rec/train_sequences.parquet"
+  validation_path: "data/processed/{dataset}/bert4rec/validation.parquet"
+  test_path: "data/processed/{dataset}/bert4rec/test.parquet"
+
+model:
+  # vocab_size and max_seq_len come from configs/datasets/<dataset>.yaml
+  hidden_dim: 128
+  num_layers: 2
+  num_heads: 4
+  feed_forward_dim: 512
+  dropout: 0.2
+  pad_token_id: 0
+  mask_token_id: 1
+
+training:
+  batch_size: 64
+  learning_rate: 0.0001
+  weight_decay: 0.01
+  num_epochs: 150
+  patience: 10
+  mask_probability: 0.15
+  num_workers: 2
+  persistent_workers: true
+  use_scheduler: false
+  scheduler_type: "cosine_annealing"
+  min_lr: 0.00001
+
+output:
+  experiment_name: "bert4rec_baseline"
+  # Outputs go to results/<dataset>/<experiment_name> and
+  # checkpoints/<dataset>/<experiment_name> (derived; see src/utils/paths.py).

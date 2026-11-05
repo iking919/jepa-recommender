@@ -1,7 +1,7 @@
 # BERT4Rec baseline configuration.
 #
 # This configuration defines the reproducible baseline experiment for
-# MovieLens-1M. Checkpoints and experiment results are stored separately.
+# Amazon Beauty. Checkpoints and experiment results are stored separately.
 
 seed: 42
 
