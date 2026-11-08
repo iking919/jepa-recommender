@@ -42,14 +42,14 @@ from src.utils.paths import scratch_dir, search_dir  # noqa: E402
 LOGGER = logging.getLogger("jepa_hyperparameter_search")
 
 SEARCH_SPACE: dict[str, list[Any]] = {
-    "lr_schedule": ["constant", "cosine"],
-    "learning_rate": [5e-4],
+    "lr_schedule": ["constant"],
+    "learning_rate": [1e-4, 3e-4, 5e-4],
     "weight_decay": [0.01],
     "warmup_epochs": [0],
-    "ema_decay": [0.996],
-    "dropout": [0.2],
-    "window_stride": [25, 50, 100, 150],
-    "hidden_dim": [128, 256, 384],
+    "ema_decay": [0.99, 0.996],
+    "dropout": [0.1, 0.2],
+    "window_stride": [25, 50, 100],
+    "hidden_dim": [128, 256],
     "num_layers": [4],
     "num_heads": [8],
     "feed_forward_dim": [1024],
