@@ -1,6 +1,6 @@
 {
   "model": "BERT4Rec",
-  "dataset": "MovieLens-1M",
+  "dataset": "amazon_beauty",
   "base_config": "configs/amazon_beauty/bert4rec_baseline.yaml",
   "search_space": {
     "learning_rate": [
