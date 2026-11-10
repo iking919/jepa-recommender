@@ -1,14 +1,17 @@
+
 """
 preprocess_amazon_beauty.py
 
-Preprocesses the Amazon Reviews 2023 All Beauty dataset
+Preprocesses the Stanford SNAP Amazon Beauty 5-core dataset
 for the JEPA Recommender project.
 
-This script orchestrates the preprocessing pipeline.
+Dataset:
+    https://snap.stanford.edu/data/amazon/productGraph/
+    categoryFiles/reviews_Beauty_5.json.gz
 
 Pipeline:
-1. Load raw Amazon Beauty reviews from JSONL.
-2. Extract user IDs, parent ASINs, and timestamps.
+1. Load raw Amazon Beauty 5-core reviews from JSON.
+2. Extract reviewerID, asin, and unixReviewTime.
 3. Sort interactions chronologically by user.
 4. Filter products with fewer than the minimum number of interactions.
 5. Build chronological user sequences and truncate to max_seq_len.
@@ -26,7 +29,7 @@ Usage:
     python scripts/preprocess_amazon_beauty.py
 
 Expected raw data location:
-    data/raw/amazon_beauty/All_Beauty.jsonl
+    data/raw/amazon_beauty/reviews_Beauty_5.json
 
 Expected intermediate output:
     data/interim/amazon_beauty/
@@ -67,7 +70,7 @@ RAW_FILE = os.path.join(
     "data",
     "raw",
     "amazon_beauty",
-    "All_Beauty.jsonl",
+    "reviews_Beauty_5.json",
 )
 
 INTERIM_DIR = os.path.join(
@@ -91,27 +94,34 @@ FIRST_ITEM_ID = 2
 
 
 # ---------------------------------------------------------------------------
-# Load Raw Amazon Beauty Dataset
+# Load Raw Stanford SNAP Amazon Beauty Dataset
 # ---------------------------------------------------------------------------
 
 def load_amazon_beauty(raw_file):
     """
-    Load Amazon Beauty reviews from JSONL.
+    Load Stanford SNAP Amazon Beauty 5-core reviews.
 
-    Only the fields required for sequential recommendation
-    are retained.
+    The SNAP dataset contains one JSON review record per line.
 
-    parent_asin is used as the product identifier so that
-    product variations are grouped under their parent product.
+    Relevant source fields:
 
-    Timestamps are retained in milliseconds.
+        reviewerID      -> user_id
+        asin            -> item_id
+        unixReviewTime  -> timestamp
+
+    ASIN is used directly as the product identifier.
+
+    Note:
+        unixReviewTime is expressed in Unix seconds, not
+        milliseconds. Its absolute scale does not affect
+        chronological sorting.
     """
 
-    print("\n=== Loading Amazon Beauty Reviews ===")
+    print("\n=== Loading SNAP Amazon Beauty 5-core Reviews ===")
 
     if not os.path.isfile(raw_file):
         raise FileNotFoundError(
-            f"Amazon Beauty dataset not found: {raw_file}"
+            f"Amazon Beauty 5-core dataset not found: {raw_file}"
         )
 
     records = []
@@ -132,9 +142,9 @@ def load_amazon_beauty(raw_file):
             try:
                 review = json.loads(line)
 
-                user_id = review.get("user_id")
-                item_id = review.get("parent_asin")
-                timestamp = review.get("timestamp")
+                user_id = review.get("reviewerID")
+                item_id = review.get("asin")
+                timestamp = review.get("unixReviewTime")
 
                 if (
                     user_id is None
@@ -153,12 +163,16 @@ def load_amazon_beauty(raw_file):
                     }
                 )
 
-            except (json.JSONDecodeError, TypeError, ValueError):
+            except (
+                json.JSONDecodeError,
+                TypeError,
+                ValueError,
+            ):
                 invalid_records += 1
 
             if total_lines % 100_000 == 0:
                 print(
-                    f"Processed {total_lines:,} JSONL records..."
+                    f"Processed {total_lines:,} JSON records..."
                 )
 
     ratings = pd.DataFrame(records)
@@ -169,7 +183,7 @@ def load_amazon_beauty(raw_file):
         )
 
     print(
-        f"\nTotal JSONL records: {total_lines:,}"
+        f"\nTotal JSON records: {total_lines:,}"
     )
 
     print(
@@ -188,6 +202,12 @@ def load_amazon_beauty(raw_file):
         f"Unique products: {ratings['item_id'].nunique():,}"
     )
 
+    print(
+        f"Timestamp range: "
+        f"{ratings['timestamp'].min()} - "
+        f"{ratings['timestamp'].max()}"
+    )
+
     return ratings
 
 
@@ -199,7 +219,7 @@ def sort_ratings_chronologically(ratings):
     """
     Sort interactions chronologically within each user.
 
-    Original JSONL row order is used as a deterministic
+    Original JSON line order is used as a deterministic
     tie-breaker when timestamps are identical.
     """
 
@@ -229,7 +249,12 @@ def filter_rare_items(
     Remove products with fewer than the minimum number
     of interactions.
 
-    Filtering is performed using parent ASIN.
+    Filtering is performed using ASIN.
+
+    The SNAP Beauty 5-core dataset already enforces a
+    minimum of five reviews per user and product. This
+    filtering step is retained for consistency with the
+    existing preprocessing pipeline.
     """
 
     print("\n=== Filtering Rare Products ===")
@@ -312,6 +337,10 @@ def build_user_sequences(
         )
     )
 
+    sequence_lengths = (
+        user_sequences["sequence"].apply(len)
+    )
+
     print(
         f"Users before minimum sequence filtering: "
         f"{len(user_sequences):,}"
@@ -323,7 +352,36 @@ def build_user_sequences(
 
     print(
         f"Average sequence length: "
-        f"{user_sequences['sequence'].apply(len).mean():.2f}"
+        f"{sequence_lengths.mean():.2f}"
+    )
+
+    print(
+        f"Median sequence length: "
+        f"{sequence_lengths.median():.2f}"
+    )
+
+    print(
+        f"Minimum sequence length: "
+        f"{sequence_lengths.min():,}"
+    )
+
+    print(
+        f"Maximum observed sequence length: "
+        f"{sequence_lengths.max():,}"
+    )
+
+    print("\nSequence Length Distribution:")
+
+    print(
+        sequence_lengths.describe(
+            percentiles=[
+                0.25,
+                0.50,
+                0.75,
+                0.90,
+                0.95,
+            ]
+        )
     )
 
     return user_sequences
@@ -364,7 +422,15 @@ def leave_last_two_out(user_sequences):
             }
         )
 
-    df_split = pd.DataFrame(split_data)
+    df_split = pd.DataFrame(
+        split_data,
+        columns=[
+            "user_id",
+            "train_sequence",
+            "validation_item",
+            "test_item",
+        ],
+    )
 
     print(
         f"Retained users with sequence length >= 3: "
@@ -441,7 +507,8 @@ def create_item_mapping(df_split):
     )
 
     print(
-        f"Vocabulary size: {len(item_map) + FIRST_ITEM_ID:,}"
+        f"Vocabulary size: "
+        f"{len(item_map) + FIRST_ITEM_ID:,}"
     )
 
     return item_map, item_mapping_df
@@ -449,7 +516,7 @@ def create_item_mapping(df_split):
 
 def apply_item_mapping(df_split, item_map):
     """
-    Convert original parent ASINs into contiguous integer IDs.
+    Convert original ASINs into contiguous integer IDs.
     """
 
     print("\n=== Applying Product ID Mapping ===")
@@ -815,11 +882,14 @@ def preprocess_pipeline(
     min_item_interactions=MIN_ITEM_INTERACTIONS,
 ):
     """
-    Run the complete Amazon Beauty preprocessing pipeline.
+    Run the complete SNAP Amazon Beauty 5-core
+    preprocessing pipeline.
     """
 
     print("=" * 72)
-    print("Amazon Reviews 2023 - All Beauty Preprocessing")
+    print(
+        "Stanford SNAP - Amazon Beauty 5-core Preprocessing"
+    )
     print("=" * 72)
 
     print(f"Raw data file: {raw_file}")
@@ -838,7 +908,7 @@ def preprocess_pipeline(
     # ------------------------------------------------------------------
 
     print(
-        "\n=== Step 1: Loading Raw Amazon Beauty Dataset ==="
+        "\n=== Step 1: Loading Raw SNAP Amazon Beauty Dataset ==="
     )
 
     ratings = load_amazon_beauty(raw_file)
@@ -891,6 +961,11 @@ def preprocess_pipeline(
         user_sequences
     )
 
+    if df_split.empty:
+        raise RuntimeError(
+            "No users remain after leave-last-two-out splitting."
+        )
+
     # ------------------------------------------------------------------
     # Step 5: Contiguous product ID mapping.
     # ------------------------------------------------------------------
@@ -940,9 +1015,28 @@ def preprocess_pipeline(
 
     print("\n" + "=" * 72)
     print(
-        "Amazon Beauty preprocessing completed successfully."
+        "SNAP Amazon Beauty 5-core preprocessing completed successfully."
     )
     print("=" * 72)
+
+    print("\nFinal dataset statistics:")
+
+    print(
+        f"Users: {len(df_split):,}"
+    )
+
+    print(
+        f"Products: {len(item_map):,}"
+    )
+
+    print(
+        f"Vocabulary size: {len(item_map) + FIRST_ITEM_ID:,}"
+    )
+
+    print(
+        f"Average training sequence length: "
+        f"{df_split['train_sequence'].apply(len).mean():.2f}"
+    )
 
 
 if __name__ == "__main__":

@@ -1,5 +1,9 @@
+
 """
-Download and extract the Amazon Reviews 2023 All Beauty dataset.
+Download and extract the Stanford SNAP Amazon Beauty 5-core dataset.
+
+Dataset:
+https://snap.stanford.edu/data/amazon/productGraph/categoryFiles/reviews_Beauty_5.json.gz
 
 Usage:
     python scripts/download_amazon_beauty.py
@@ -7,6 +11,12 @@ Usage:
 Optional:
     python scripts/download_amazon_beauty.py --raw-dir data/raw/amazon_beauty
     python scripts/download_amazon_beauty.py --force
+
+Output:
+    data/raw/amazon_beauty/reviews_Beauty_5.json
+
+Note:
+    The extracted file contains one JSON review record per line.
 """
 
 from __future__ import annotations
@@ -18,35 +28,38 @@ import ssl
 import sys
 import urllib.error
 import urllib.request
+import zlib
 from pathlib import Path
 
 
 DATASET_URL = (
-    "https://mcauleylab.ucsd.edu/public_datasets/"
-    "data/amazon_2023/raw/review_categories/"
-    "All_Beauty.jsonl.gz"
+    "https://snap.stanford.edu/data/amazon/productGraph/"
+    "categoryFiles/reviews_Beauty_5.json.gz"
 )
 
-ARCHIVE_FILENAME = "All_Beauty.jsonl.gz"
-DATASET_FILENAME = "All_Beauty.jsonl"
+ARCHIVE_FILENAME = "reviews_Beauty_5.json.gz"
+DATASET_FILENAME = "reviews_Beauty_5.json"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Download and extract Amazon Reviews 2023 All Beauty."
+        description=(
+            "Download and extract the Stanford SNAP Amazon "
+            "Beauty 5-core dataset."
+        )
     )
 
     parser.add_argument(
         "--raw-dir",
         type=Path,
         default=Path("data/raw/amazon_beauty"),
-        help="Directory where the All Beauty dataset will be stored.",
+        help="Directory where the Beauty 5-core dataset will be stored.",
     )
 
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Re-download even if the dataset already exists.",
+        help="Re-download and replace the dataset if it already exists.",
     )
 
     return parser.parse_args()
@@ -71,6 +84,7 @@ def get_ssl_context() -> ssl.SSLContext:
             "WARNING: certifi is not installed; using the system "
             "certificate store."
         )
+
         return ssl.create_default_context()
 
 
@@ -86,6 +100,7 @@ def download_file(
     destination: Path,
     context: ssl.SSLContext,
 ) -> None:
+    """Download a file with progress reporting."""
 
     print(f"Downloading:\n  {url}")
     print(f"Destination:\n  {destination}\n")
@@ -120,32 +135,36 @@ def download_file(
                     output.write(chunk)
                     downloaded += len(chunk)
 
+                    downloaded_mb = downloaded / 1024**2
+
                     if total_bytes:
-                        percent = (
-                            downloaded / total_bytes * 100
-                        )
+                        total_mb = total_bytes / 1024**2
+                        percent = downloaded / total_bytes * 100
 
                         print(
                             f"\rProgress: {percent:6.2f}% "
-                            f"({downloaded / 1024**2:.1f} MB / "
-                            f"{total_bytes / 1024**2:.1f} MB)",
+                            f"({downloaded_mb:.1f} MB / "
+                            f"{total_mb:.1f} MB)",
                             end="",
                             flush=True,
                         )
 
                     else:
                         print(
-                            f"\rDownloaded: "
-                            f"{downloaded / 1024**2:.1f} MB",
+                            f"\rDownloaded: {downloaded_mb:.1f} MB",
                             end="",
                             flush=True,
                         )
 
         print("\nDownload complete.")
 
+        if destination.stat().st_size == 0:
+            raise RuntimeError("Downloaded archive is empty.")
+
     except Exception:
         if destination.exists():
             destination.unlink()
+
         raise
 
 
@@ -153,33 +172,52 @@ def extract_dataset(
     archive_path: Path,
     raw_dir: Path,
 ) -> Path:
+    """
+    Extract the gzip archive into a JSON file.
+
+    The source contains one JSON review record per line.
+
+    Extraction uses a temporary file so an incomplete extraction
+    cannot replace an existing valid dataset.
+    """
 
     dataset_path = raw_dir / DATASET_FILENAME
+    temporary_path = raw_dir / f"{DATASET_FILENAME}.tmp"
 
     print(f"Extracting {archive_path}...")
 
-    with gzip.open(archive_path, "rb") as compressed:
-        with dataset_path.open("wb") as output:
-            shutil.copyfileobj(
-                compressed,
-                output,
-                length=1024 * 1024,
+    try:
+        with gzip.open(archive_path, "rb") as compressed:
+            with temporary_path.open("wb") as output:
+                shutil.copyfileobj(
+                    compressed,
+                    output,
+                    length=1024 * 1024,
+                )
+
+        if not dataset_is_present(temporary_path):
+            raise RuntimeError(
+                "Extraction completed, but the expected "
+                "Beauty 5-core JSON file is empty."
             )
 
-    if not dataset_is_present(dataset_path):
-        raise RuntimeError(
-            "Extraction completed, but the expected "
-            "All Beauty JSONL file was not found or is empty."
-        )
+        # Replace the destination only after successful extraction.
+        temporary_path.replace(dataset_path)
+
+    except Exception:
+        if temporary_path.exists():
+            temporary_path.unlink()
+
+        raise
 
     return dataset_path
 
 
 def main() -> int:
-
     args = parse_args()
 
     raw_dir = args.raw_dir.resolve()
+
     dataset_path = raw_dir / DATASET_FILENAME
     archive_path = raw_dir / ARCHIVE_FILENAME
 
@@ -189,20 +227,18 @@ def main() -> int:
     )
 
     print("=" * 70)
-    print("Amazon Reviews 2023 - All Beauty Downloader")
+    print("Stanford SNAP - Amazon Beauty 5-core Downloader")
     print("=" * 70)
 
+    # Avoid unnecessary downloads.
     if dataset_is_present(dataset_path) and not args.force:
 
-        print("\nAll Beauty dataset is already present:")
+        print("\nBeauty 5-core dataset is already present:")
         print(f"  {dataset_path}")
 
+        print("\nUse --force to download and replace it.")
+
         return 0
-
-    if args.force and dataset_path.exists():
-
-        print("\nRemoving existing dataset...")
-        dataset_path.unlink()
 
     context = get_ssl_context()
 
@@ -222,7 +258,8 @@ def main() -> int:
     except urllib.error.URLError as exc:
 
         print(
-            "\nERROR: Could not download Amazon Reviews 2023.",
+            "\nERROR: Could not download the Stanford SNAP "
+            "Amazon Beauty dataset.",
             file=sys.stderr,
         )
 
@@ -243,7 +280,7 @@ def main() -> int:
 
         return 1
 
-    except (gzip.BadGzipFile, EOFError):
+    except (gzip.BadGzipFile, EOFError, zlib.error):
 
         print(
             "\nERROR: The downloaded file is not a valid "
@@ -264,14 +301,17 @@ def main() -> int:
 
     finally:
 
+        # Remove the compressed archive after extraction.
         if archive_path.exists():
+
             print(
-                f"Removing temporary archive: {archive_path}"
+                f"\nRemoving temporary archive: {archive_path}"
             )
+
             archive_path.unlink()
 
     print("\n" + "=" * 70)
-    print("Amazon Reviews 2023 - All Beauty download complete.")
+    print("Stanford SNAP - Amazon Beauty 5-core download complete.")
     print("=" * 70)
 
     print("\nDataset:")
@@ -282,7 +322,7 @@ def main() -> int:
     size_mb = dataset_path.stat().st_size / 1024**2
 
     print(
-        f"  ✓ {DATASET_FILENAME:<24} "
+        f"  {DATASET_FILENAME:<28} "
         f"{size_mb:8.2f} MB"
     )
 
