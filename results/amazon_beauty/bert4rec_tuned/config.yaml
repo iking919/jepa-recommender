@@ -1,0 +1,34 @@
+seed: 42
+device: cuda
+data:
+  train_sequences_path: data/processed/amazon_beauty/bert4rec/train_sequences.parquet
+  validation_path: data/processed/amazon_beauty/bert4rec/validation.parquet
+  test_path: data/processed/amazon_beauty/bert4rec/test.parquet
+model:
+  hidden_dim: 128
+  num_layers: 2
+  num_heads: 4
+  feed_forward_dim: 512
+  dropout: 0.2
+  pad_token_id: 0
+  mask_token_id: 1
+  vocab_size: 8609
+  max_seq_len: 200
+training:
+  batch_size: 128
+  learning_rate: 0.0005
+  weight_decay: 0.05
+  num_epochs: 250
+  patience: 30
+  mask_probability: 0.3
+  num_workers: 2
+  persistent_workers: true
+  use_scheduler: false
+  scheduler_type: cosine_annealing
+  min_lr: 1.0e-05
+output:
+  experiment_name: bert4rec_tuned
+  checkpoint_dir: checkpoints/amazon_beauty/bert4rec_tuned
+  results_dir: results/amazon_beauty/bert4rec_tuned
+  best_checkpoint_name: bert4rec_tuned_best.pt
+dataset: amazon_beauty

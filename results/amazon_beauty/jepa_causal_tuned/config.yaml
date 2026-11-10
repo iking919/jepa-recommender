@@ -1,0 +1,38 @@
+seed: 42
+device: cuda
+data:
+  train_path: data/processed/amazon_beauty/jepa/train_context_target.parquet
+  validation_path: data/processed/amazon_beauty/jepa/validation.parquet
+  test_path: data/processed/amazon_beauty/jepa/test.parquet
+model:
+  hidden_dim: 256
+  num_layers: 4
+  num_heads: 8
+  feed_forward_dim: 1024
+  dropout: 0.1
+  pad_token_id: 0
+  causal: true
+  vocab_size: 8609
+  max_seq_len: 200
+training:
+  batch_size: 512
+  learning_rate: 0.0005
+  weight_decay: 0.01
+  num_epochs: 300
+  patience: 40
+  window_stride: 25
+  lr_schedule: constant
+  warmup_epochs: 0
+  min_lr_ratio: 0.0
+  selection_window: 1
+  ema_decay: 0.996
+  mixed_precision: true
+  amp_dtype: bfloat16
+  compile: false
+output:
+  experiment_name: jepa_causal_tuned
+  checkpoint_dir: checkpoints/amazon_beauty/jepa_causal_tuned
+  results_dir: results/amazon_beauty/jepa_causal_tuned
+  best_checkpoint_name: jepa_causal_tuned_best.pt
+  save_checkpoint: true
+dataset: amazon_beauty
