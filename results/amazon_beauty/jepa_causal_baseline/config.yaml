@@ -12,7 +12,7 @@ model:
   dropout: 0.2
   pad_token_id: 0
   causal: true
-  vocab_size: 8609
+  vocab_size: 12103
   max_seq_len: 200
 training:
   batch_size: 64
