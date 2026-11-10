@@ -267,8 +267,6 @@ Use `--name <experiment>` to write a run elsewhere without editing the YAML, and
 
 To add a dataset, preprocess it into `data/processed/<name>/{bert4rec,jepa}/`, then copy `configs/datasets/ml-1m.yaml` to `configs/datasets/<name>.yaml` and set `name` and `vocab_size` (largest mapped item id + 1). Optionally copy any experiment configs you want to tune into `configs/<name>/`.
 
-If you have results or configs from before this layout existed, run `python -m scripts.migrate_results_layout` (dry run) and then add `--apply`. It moves `results/`, `checkpoints/`, and `configs/*.yaml` into `<dataset>/` folders and updates paths stored inside them.
-
 The causal JEPA configurations use the causal training implementation and should be treated as separate experiments from the standard JEPA configurations.
 
 ## Training
