@@ -1,0 +1,5 @@
+# configs/<new_dataset>/jepa_causal_search.yaml  (copy of the baseline, then edit)
+training:
+  num_epochs: 60      # was 150
+  patience: 10        # was 20; this is the bigger lever
+  batch_size: 512     # the search overrides this anyway

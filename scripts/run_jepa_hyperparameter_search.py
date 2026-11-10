@@ -68,7 +68,7 @@ CONFIG_PATHS: dict[str, tuple[str, ...] | None] = {
     "hidden_dim": ("model", "hidden_dim"),
     "num_layers": ("model", "num_layers"),
     "num_heads": ("model", "num_heads"),
-    "feed_forward_dim": ("model", "ff_dim"),
+    "feed_forward_dim": ("model", "feed_forward_dim"),
     "batch_size": ("training", "batch_size"),
     "max_seq_len": ("model", "max_seq_len"),
 }

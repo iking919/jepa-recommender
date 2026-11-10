@@ -38,8 +38,8 @@ from src.utils.paths import search_dir
 logger = logging.getLogger(__name__)
 
 
-SEARCH_SPACE: dict[str, list[Any]] = {
-    "learning_rate": [3e-4, 5e-4, 1e-3],
+SEARCH_SPACE = {
+    "learning_rate": [1e-4, 2e-4],   # new values only; 3e-4 and up are already done
     "weight_decay": [0.01, 0.05],
     "mask_probability": [0.15, 0.30],
     "batch_size": [128, 256],
