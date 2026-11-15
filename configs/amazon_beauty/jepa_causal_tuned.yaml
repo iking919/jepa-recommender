@@ -20,7 +20,7 @@ model:
   num_layers: 4
   num_heads: 8
   feed_forward_dim: 1024
-  dropout: 0.1
+  dropout: 0.2
   pad_token_id: 0
   causal: true
 
@@ -35,7 +35,7 @@ training:
   warmup_epochs: 0
   min_lr_ratio: 0.0
   selection_window: 1
-  ema_decay: 0.996
+  ema_decay: 0.99
   mixed_precision: true
   amp_dtype: "bfloat16"
   compile: false
