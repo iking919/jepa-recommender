@@ -381,22 +381,6 @@ python -m src.training.train_jepa_causal \
   --config configs/amazon_beauty/jepa_causal_tuned.yaml
 ```
 
-### Comparison Runs
-
-To preserve existing results, comparison runs can use separate experiment names:
-
-```bash
-python -m src.training.train_bert4rec \
-  --config configs/amazon_beauty/bert4rec_tuned.yaml \
-  --name bert4rec_comparison
-```
-
-```bash
-python -m src.training.train_jepa_causal \
-  --config configs/amazon_beauty/jepa_causal_tuned.yaml \
-  --name jepa_causal_comparison
-```
-
 Training saves the best checkpoint, training history, run summary, and resolved configuration in their respective output directories.
 
 ## Hyperparameter Search

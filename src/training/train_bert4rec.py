@@ -243,6 +243,13 @@ def train_bert4rec(
     total_train_time = 0.0
     total_validation_time = 0.0
     num_epochs = training_config["num_epochs"]
+    patience = training_config.get("patience", num_epochs)
+
+    if patience < 1:
+        raise ValueError("Training patience must be at least 1.")
+
+    epochs_without_improvement = 0
+    early_stopping_triggered = False
 
     logger.info(
         "Starting %s training for %d epochs. Artifact saving: %s; "
@@ -347,6 +354,7 @@ def train_bert4rec(
             best_ndcg10 = record["NDCG@10"]
             best_epoch = epoch
             best_metrics = dict(val_metrics)
+            epochs_without_improvement = 0
 
             if save_checkpoint_enabled:
                 checkpoint_state = {
@@ -365,6 +373,22 @@ def train_bert4rec(
                 logger.info(
                     "Saved new best checkpoint: %s", best_checkpoint_path,
                 )
+        else:
+            epochs_without_improvement += 1
+
+        if epochs_without_improvement >= patience:
+            early_stopping_triggered = True
+
+            logger.info(
+                "Early stopping at epoch %d. "
+                "No validation NDCG@10 improvement for %d consecutive epochs. "
+                "Best epoch: %d (NDCG@10=%.4f).",
+                epoch,
+                patience,
+                best_epoch,
+                best_ndcg10,
+            )
+            break
 
     synchronize_cuda(device)
     total_time = time.perf_counter() - total_start
@@ -377,7 +401,10 @@ def train_bert4rec(
     summary = {
         "model": "BERT4Rec",
         "experiment_name": experiment_name,
-        "dataset": data_config.get("dataset_name", "unknown"),
+        "dataset": config.get(
+            "dataset",
+            data_config.get("dataset_name", "unknown"),
+        ),
         "run_start": run_start,
         "run_end": run_end,
         "device": str(device),
@@ -439,6 +466,10 @@ def train_bert4rec(
                 "evaluation_batch_size", 256,
             ),
             "save_checkpoint": save_checkpoint_enabled,
+            "num_epochs": num_epochs,
+            "patience": patience,
+            "early_stopping_triggered": early_stopping_triggered,
+            "epochs_without_improvement": epochs_without_improvement,
         },
         "model_configuration": model_config,
         "data": {
