@@ -31,4 +31,5 @@ output:
   checkpoint_dir: checkpoints/amazon_beauty/bert4rec_tuned
   results_dir: results/amazon_beauty/bert4rec_tuned
   best_checkpoint_name: bert4rec_tuned_best.pt
+  save_checkpoint: true
 dataset: amazon_beauty

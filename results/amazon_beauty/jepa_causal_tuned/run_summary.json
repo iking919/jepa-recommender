@@ -1,30 +1,30 @@
 {
   "model": "JEPA (causal one-pass)",
   "experiment_name": "jepa_causal_tuned",
-  "dataset": "amazon_beauty",
-  "run_start": "2026-11-15T19:25:49.602499",
-  "run_end": "2026-11-15T19:54:15.566839",
+  "dataset": "unknown",
+  "run_start": "2026-11-16T17:11:16.313726",
+  "run_end": "2026-11-16T17:39:45.202791",
   "device": "cuda",
   "seed": 42,
   "configured_epochs": 300,
   "completed_epochs": 123,
   "best_epoch": 83,
   "best_metrics": {
-    "HR@5": 0.04046862944960594,
-    "HR@10": 0.047578588128089905,
-    "NDCG@5": 0.03113703429698944,
-    "NDCG@10": 0.033445484936237335
+    "HR@5": 0.04033448174595833,
+    "HR@10": 0.04726557433605194,
+    "NDCG@5": 0.031066372990608215,
+    "NDCG@10": 0.03333847597241402
   },
-  "best_epoch_loss": 0.7903974706476385,
-  "best_selection_score": 0.033445484936237335,
+  "best_epoch_loss": 0.7903946096246893,
+  "best_selection_score": 0.03333847597241402,
   "timing": {
-    "total_training_time_seconds": 1705.9643273716792,
-    "total_training_time_minutes": 28.43273878952799,
-    "total_train_only_seconds": 310.1442082198337,
-    "time_to_best_epoch_seconds": 1120.2368543646298,
-    "average_epoch_time_seconds": 13.86962867781853,
-    "average_train_time_seconds": 2.5214976278035257,
-    "average_validation_time_seconds": 11.036451646645471
+    "total_training_time_seconds": 1708.8890512259677,
+    "total_training_time_minutes": 28.48148418709946,
+    "total_train_only_seconds": 312.0044839195907,
+    "time_to_best_epoch_seconds": 1115.9461950706318,
+    "average_epoch_time_seconds": 13.472441583182814,
+    "average_train_time_seconds": 2.5366218204844775,
+    "average_validation_time_seconds": 10.935819762698337
   },
   "hardware": {
     "device": "cuda",

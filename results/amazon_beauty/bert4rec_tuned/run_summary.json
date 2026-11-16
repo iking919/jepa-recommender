@@ -1,34 +1,73 @@
 {
   "model": "BERT4Rec",
   "experiment_name": "bert4rec_tuned",
-  "dataset": "amazon_beauty",
-  "run_start": "2026-11-15T19:56:39.431312",
-  "run_end": "2026-11-15T21:08:51.283627",
+  "dataset": "unknown",
+  "run_start": "2026-11-16T17:42:06.594361",
+  "run_end": "2026-11-16T18:39:08.739350",
   "device": "cuda",
   "seed": 42,
   "configured_epochs": 300,
   "completed_epochs": 300,
-  "best_epoch": 172,
-  "best_validation_metrics": {
-    "epoch": 172,
-    "loss": 4.37311195057449,
-    "learning_rate": 0.0003,
-    "HR@5": 0.06331887492733533,
-    "HR@10": 0.09310021016858203,
-    "NDCG@5": 0.04381294350957799,
-    "NDCG@10": 0.05337934150916033,
-    "epoch_time_seconds": 14.459555748850107
+  "best_epoch": 128,
+  "best_metrics": {
+    "HR@5": 0.0638107588427313,
+    "HR@10": 0.09421812815811832,
+    "NDCG@5": 0.04353699031671069,
+    "NDCG@10": 0.0533340421156335
   },
+  "best_epoch_loss": 4.803481488312495,
+  "best_selection_score": 0.0533340421156335,
   "timing": {
-    "total_training_time_seconds": 4331.852302752901,
-    "total_training_time_minutes": 72.19753837921502,
-    "average_epoch_time_seconds": 14.439507675843004
+    "total_training_time_seconds": 3422.144977240823,
+    "total_training_time_minutes": 57.035749620680384,
+    "total_train_only_seconds": 485.1627953890711,
+    "time_to_best_epoch_seconds": 1456.318547308445,
+    "average_epoch_time_seconds": 11.275102131757885,
+    "average_train_time_seconds": 1.6172093179635703,
+    "average_validation_time_seconds": 9.657892813794314
+  },
+  "hardware": {
+    "device": "cuda",
+    "gpu": "NVIDIA A100 80GB PCIe",
+    "peak_gpu_memory_gb": 4.8286309242248535
   },
   "model_parameters": {
+    "total": 3532615,
     "trainable": 3532615
+  },
+  "training_configuration": {
+    "batch_size": 256,
+    "learning_rate": 0.0003,
+    "weight_decay": 0.05,
+    "num_workers": 2,
+    "mixed_precision": true,
+    "amp_dtype": "bf16",
+    "fused_adamw": true,
+    "use_scheduler": false,
+    "scheduler_type": null,
+    "evaluation_batch_size": 256,
+    "save_checkpoint": true
+  },
+  "model_configuration": {
+    "hidden_dim": 128,
+    "num_layers": 2,
+    "num_heads": 4,
+    "feed_forward_dim": 512,
+    "dropout": 0.2,
+    "pad_token_id": 0,
+    "mask_token_id": 1,
+    "vocab_size": 12103,
+    "max_seq_len": 200
+  },
+  "data": {
+    "training_samples": 22363,
+    "validation_samples": 22363,
+    "training_batches_per_epoch": 88
   },
   "files": {
     "checkpoint": "checkpoints/amazon_beauty/bert4rec_tuned/bert4rec_tuned_best.pt",
-    "training_history": "results/amazon_beauty/bert4rec_tuned/training_history.csv"
+    "epoch_history": "results/amazon_beauty/bert4rec_tuned/training_history.csv",
+    "run_summary": "results/amazon_beauty/bert4rec_tuned/run_summary.json",
+    "config": "results/amazon_beauty/bert4rec_tuned/config.yaml"
   }
 }
