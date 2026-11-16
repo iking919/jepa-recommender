@@ -162,7 +162,7 @@ def save_reports(
 
     report = {
         "model": "BERT4Rec",
-        "dataset": "MovieLens-1M",
+        "dataset": "{}".format(load_config(base_config_path).get("dataset", "unknown")),
         "base_config": base_config_path,
         "search_space": SEARCH_SPACE,
         "total_possible_trials": len(build_trials()),

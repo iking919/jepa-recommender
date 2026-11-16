@@ -468,7 +468,7 @@ def train(config: dict) -> dict:
     summary = {
         "model": "JEPA",
         "experiment_name": experiment_name,
-        "dataset": "MovieLens-1M",
+        "dataset": "{}".format(data_config.get("dataset_name", "unknown")),
         "run_start": run_start,
         "run_end": run_end,
         "device": str(device),
