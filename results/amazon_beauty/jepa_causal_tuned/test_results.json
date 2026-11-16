@@ -1,0 +1,11 @@
+{
+  "model": "JEPA",
+  "dataset": "amazon_beauty",
+  "checkpoint": "checkpoints/amazon_beauty/jepa_causal_tuned/jepa_causal_tuned_best.pt",
+  "metrics": {
+    "HR@5": 0.02884228341281414,
+    "NDCG@5": 0.02274792268872261,
+    "HR@10": 0.03385055810213089,
+    "NDCG@10": 0.024373576045036316
+  }
+}

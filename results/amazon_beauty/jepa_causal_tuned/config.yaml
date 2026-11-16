@@ -9,10 +9,10 @@ model:
   num_layers: 4
   num_heads: 8
   feed_forward_dim: 1024
-  dropout: 0.1
+  dropout: 0.2
   pad_token_id: 0
   causal: true
-  vocab_size: 8609
+  vocab_size: 12103
   max_seq_len: 200
 training:
   batch_size: 512
@@ -25,7 +25,7 @@ training:
   warmup_epochs: 0
   min_lr_ratio: 0.0
   selection_window: 1
-  ema_decay: 0.996
+  ema_decay: 0.99
   mixed_precision: true
   amp_dtype: bfloat16
   compile: false

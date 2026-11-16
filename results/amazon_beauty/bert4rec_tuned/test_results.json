@@ -1,0 +1,11 @@
+{
+  "model": "BERT4Rec",
+  "dataset": "amazon_beauty",
+  "checkpoint": "checkpoints/amazon_beauty/bert4rec_tuned/bert4rec_tuned_best.pt",
+  "metrics": {
+    "HR@5": 0.04789160667173456,
+    "HR@10": 0.07190448508697402,
+    "NDCG@5": 0.03251326736099617,
+    "NDCG@10": 0.04024982635415756
+  }
+}

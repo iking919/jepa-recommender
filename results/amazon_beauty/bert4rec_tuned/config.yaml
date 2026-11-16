@@ -12,14 +12,14 @@ model:
   dropout: 0.2
   pad_token_id: 0
   mask_token_id: 1
-  vocab_size: 8609
+  vocab_size: 12103
   max_seq_len: 200
 training:
-  batch_size: 128
-  learning_rate: 0.0005
+  batch_size: 256
+  learning_rate: 0.0003
   weight_decay: 0.05
-  num_epochs: 250
-  patience: 30
+  num_epochs: 300
+  patience: 40
   mask_probability: 0.3
   num_workers: 2
   persistent_workers: true
