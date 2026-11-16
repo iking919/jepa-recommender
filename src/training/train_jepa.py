@@ -1,12 +1,10 @@
 """
-Training pipeline for JEPA.
+Training pipeline for standard JEPA.
 """
 
 from __future__ import annotations
 
 import argparse
-import csv
-import json
 import logging
 import time
 from datetime import datetime
@@ -20,94 +18,29 @@ from src.data.datasets import JEPADataset
 from src.data.gpu_loader import GPUBatchLoader
 from src.evaluation.evaluate import evaluate_jepa
 from src.models.jepa import JEPA
+from src.training.common import (
+    count_parameters,
+    get_gpu_name,
+    get_peak_gpu_memory_gb,
+    log_hardware,
+    reset_peak_gpu_memory,
+    resolve_device,
+    save_epoch_history,
+    save_run_summary,
+    set_seed,
+    synchronize_cuda,
+)
 from src.training.ema import EMA
 from src.utils.checkpointing import save_checkpoint
 from src.utils.config import (
     add_config_args,
-    load_config,
     load_config_from_args,
     save_resolved_config,
 )
 from src.utils.logging import setup_logging
 from src.utils.paths import resolve_output
-from src.utils.reproducibility import set_seed
-
 
 logger = logging.getLogger(__name__)
-
-
-def synchronize_cuda(device: torch.device) -> None:
-    """Synchronize CUDA before recording GPU-dependent timings."""
-
-    if device.type == "cuda":
-        torch.cuda.synchronize(device)
-
-
-def get_peak_gpu_memory_gb(device: torch.device) -> float:
-    """Return peak allocated GPU memory in gigabytes."""
-
-    if device.type != "cuda":
-        return 0.0
-
-    return torch.cuda.max_memory_allocated(device) / (1024 ** 3)
-
-
-def count_parameters(model: torch.nn.Module) -> tuple[int, int]:
-    """Return total and trainable parameter counts."""
-
-    total = sum(parameter.numel() for parameter in model.parameters())
-    trainable = sum(
-        parameter.numel()
-        for parameter in model.parameters()
-        if parameter.requires_grad
-    )
-
-    return total, trainable
-
-
-def save_epoch_history(history: list[dict], path: Path) -> None:
-    """Write epoch-level training results to CSV."""
-
-    if not history:
-        return
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    with path.open("w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(
-            file,
-            fieldnames=list(history[0].keys()),
-        )
-        writer.writeheader()
-        writer.writerows(history)
-
-
-def save_run_summary(summary: dict, path: Path) -> None:
-    """Write the final run summary to JSON."""
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    with path.open("w", encoding="utf-8") as file:
-        json.dump(summary, file, indent=2)
-
-
-def _resolve_device(config: dict) -> torch.device:
-    """Resolve and validate the configured device."""
-
-    configured_device = config.get("device")
-
-    if configured_device == "cuda" and not torch.cuda.is_available():
-        raise RuntimeError(
-            "CUDA was requested in the configuration, but CUDA is not "
-            "available in the installed PyTorch environment."
-        )
-
-    if configured_device:
-        return torch.device(configured_device)
-
-    return torch.device(
-        "cuda" if torch.cuda.is_available() else "cpu"
-    )
 
 
 def train_one_epoch(
@@ -122,11 +55,10 @@ def train_one_epoch(
     forward_model: torch.nn.Module | None = None,
 ) -> tuple[float, float]:
     """Train JEPA for one epoch and return loss and elapsed time."""
-
     model.train()
     forward_model = forward_model if forward_model is not None else model
 
-    # Accumulate on-device; calling .item() every step forces a GPU sync.
+    # Accumulate on-device to avoid synchronizing the GPU on every batch.
     running_loss = torch.zeros((), device=device)
     epoch_start = time.perf_counter()
 
@@ -147,14 +79,9 @@ def train_one_epoch(
                 actual_lens=actual_lens,
                 target_item=target,
             )
-
             loss = (
                 1.0
-                - F.cosine_similarity(
-                    z_pred,
-                    z_target,
-                    dim=-1,
-                )
+                - F.cosine_similarity(z_pred, z_target, dim=-1)
             ).mean()
 
         if use_amp and device.type == "cuda":
@@ -169,10 +96,8 @@ def train_one_epoch(
         running_loss += loss.detach().float()
 
     synchronize_cuda(device)
-
     elapsed = time.perf_counter() - epoch_start
     average_loss = running_loss.item() / len(dataloader)
-
     return average_loss, elapsed
 
 
@@ -184,9 +109,7 @@ def validate(
     num_items: int,
 ) -> dict[str, float]:
     """Run JEPA recommendation evaluation on the validation set."""
-
     model.eval()
-
     return evaluate_jepa(
         model=model,
         loader=validation_loader,
@@ -196,21 +119,17 @@ def validate(
 
 
 def train(config: dict) -> dict:
-    """Run a complete JEPA training experiment."""
-
+    """Run a complete standard JEPA training experiment."""
     seed = config.get("seed", 42)
     set_seed(seed)
 
-    device = _resolve_device(config)
-    logger.info("Using device: %s", device)
-
-    if device.type == "cuda":
-        logger.info("GPU: %s", torch.cuda.get_device_name(device))
+    device = resolve_device(config)
+    log_hardware(device)
 
     data_config = config["data"]
     model_config = config["model"]
     training_config = config["training"]
-    resolve_output(config)  # no-op for configs built by load_config
+    resolve_output(config)
     output_config = config["output"]
 
     train_df = pd.read_parquet(data_config["train_path"])
@@ -222,7 +141,6 @@ def train(config: dict) -> dict:
         max_seq_len=model_config["max_seq_len"],
         pad_token=model_config.get("pad_token_id", 0),
     )
-
     validation_dataset = JEPADataset(
         contexts=validation_df["context_sequence"].tolist(),
         targets=validation_df["target_item"].tolist(),
@@ -231,7 +149,7 @@ def train(config: dict) -> dict:
     )
 
     batch_size = training_config["batch_size"]
-    # Unused now (data lives on the GPU); kept so run_summary.json keeps its schema.
+    # The data is resident on the GPU; retained in the run metadata for compatibility.
     num_workers = training_config.get("num_workers", 0)
     trim_padding = training_config.get("trim_padding", False)
     bucket_chunk_batches = training_config.get("length_bucketing", 0)
@@ -245,7 +163,6 @@ def train(config: dict) -> dict:
         trim_padding=trim_padding,
         bucket_chunk_batches=bucket_chunk_batches,
     )
-
     validation_loader = GPUBatchLoader(
         validation_dataset,
         batch_size=batch_size,
@@ -270,18 +187,15 @@ def train(config: dict) -> dict:
 
     logger.info(
         "Training samples: %d | validation samples: %d",
-        len(train_dataset),
-        len(validation_dataset),
+        len(train_dataset), len(validation_dataset),
     )
     logger.info(
         "Training batches per epoch: %d | validation batches: %d",
-        len(train_loader),
-        len(validation_loader),
+        len(train_loader), len(validation_loader),
     )
     logger.info(
         "Model parameters: %s total | %s trainable",
-        f"{total_params:,}",
-        f"{trainable_params:,}",
+        f"{total_params:,}", f"{trainable_params:,}",
     )
 
     optimizer = torch.optim.AdamW(
@@ -303,51 +217,64 @@ def train(config: dict) -> dict:
     )
     amp_dtype_name = training_config.get("amp_dtype", "float16")
     if amp_dtype_name not in ("float16", "bfloat16"):
-        raise ValueError(f"amp_dtype must be float16 or bfloat16, got {amp_dtype_name}.")
+        raise ValueError(
+            f"amp_dtype must be float16 or bfloat16, got {amp_dtype_name}."
+        )
     amp_dtype = getattr(torch, amp_dtype_name)
-    if use_amp and amp_dtype is torch.bfloat16 and not torch.cuda.is_bf16_supported():
-        raise RuntimeError("bfloat16 was requested but this GPU does not support it.")
+    if (
+        use_amp
+        and amp_dtype is torch.bfloat16
+        and not torch.cuda.is_bf16_supported()
+    ):
+        raise RuntimeError(
+            "bfloat16 was requested but this GPU does not support it."
+        )
 
-    # Loss scaling is only needed for float16; a disabled scaler is a no-op.
     scaler = torch.amp.GradScaler(
         "cuda",
         enabled=use_amp and amp_dtype is torch.float16,
     )
 
-    # Compile only the training forward pass. ``model`` stays uncompiled so
-    # EMA, validation, and checkpointing are unaffected. dynamic=True avoids
-    # a recompile for every distinct trimmed sequence length.
     use_compile = training_config.get("compile", False)
     forward_model = (
         torch.compile(model, dynamic=True) if use_compile else model
     )
 
     experiment_name = output_config["experiment_name"]
-    checkpoint_dir = Path(output_config["checkpoint_dir"])
     results_dir = Path(output_config["results_dir"])
-
-    checkpoint_dir.mkdir(parents=True, exist_ok=True)
     results_dir.mkdir(parents=True, exist_ok=True)
 
-    best_checkpoint = (
-        checkpoint_dir / output_config["best_checkpoint_name"]
-    )
+    save_checkpoint_enabled = training_config.get("save_checkpoint", True)
+    if save_checkpoint_enabled:
+        checkpoint_dir = Path(output_config["checkpoint_dir"])
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        best_checkpoint = (
+            checkpoint_dir / output_config["best_checkpoint_name"]
+        )
+    else:
+        checkpoint_dir = None
+        best_checkpoint = None
+
     history_path = results_dir / "training_history.csv"
     summary_path = results_dir / "run_summary.json"
+    config_path = results_dir / "config.yaml"
 
-    # Save the fully resolved config next to the results.
+    output_config["checkpoint_dir"] = (
+        str(checkpoint_dir) if checkpoint_dir is not None else None
+    )
+    output_config["results_dir"] = str(results_dir)
+    output_config["save_checkpoint"] = save_checkpoint_enabled
     save_resolved_config(config, results_dir)
 
     best_ndcg10 = float("-inf")
     best_epoch = 0
-    best_metrics = {}
-    best_epoch_record = {}
+    best_metrics: dict = {}
+    best_epoch_record: dict = {}
     epochs_without_improvement = 0
+    epoch_history: list[dict] = []
 
-    epoch_history = []
     total_train_time = 0.0
     total_validation_time = 0.0
-
     configured_epochs = training_config["num_epochs"]
     patience = training_config.get("patience", 3)
 
@@ -355,15 +282,10 @@ def train(config: dict) -> dict:
     total_start = time.perf_counter()
 
     for epoch in range(1, configured_epochs + 1):
-        if device.type == "cuda":
-            torch.cuda.reset_peak_memory_stats(device)
+        reset_peak_gpu_memory(device)
+        logger.info("Starting epoch %d/%d", epoch, configured_epochs)
 
-        logger.info(
-            "Starting epoch %d/%d",
-            epoch,
-            configured_epochs,
-        )
-
+        synchronize_cuda(device)
         train_loss, train_time = train_one_epoch(
             model=model,
             dataloader=train_loader,
@@ -378,14 +300,12 @@ def train(config: dict) -> dict:
         total_train_time += train_time
 
         validation_start = time.perf_counter()
-
         metrics = validate(
             model=model,
             validation_loader=validation_loader,
             device=device,
             num_items=model_config["vocab_size"],
         )
-
         synchronize_cuda(device)
         validation_time = time.perf_counter() - validation_start
         total_validation_time += validation_time
@@ -400,6 +320,7 @@ def train(config: dict) -> dict:
             "HR@10": metrics["HR@10"],
             "NDCG@5": metrics["NDCG@5"],
             "NDCG@10": metrics["NDCG@10"],
+            "lr": optimizer.param_groups[0]["lr"],
             "train_time_seconds": train_time,
             "validation_time_seconds": validation_time,
             "epoch_time_seconds": epoch_time,
@@ -412,19 +333,13 @@ def train(config: dict) -> dict:
             "Epoch %02d/%02d | loss=%.4f | HR@5=%.4f | HR@10=%.4f | "
             "NDCG@5=%.4f | NDCG@10=%.4f | train=%.1fs | val=%.1fs | "
             "epoch=%.1fs | peak_gpu=%.2f GB",
-            epoch,
-            configured_epochs,
-            train_loss,
-            metrics["HR@5"],
-            metrics["HR@10"],
-            metrics["NDCG@5"],
-            metrics["NDCG@10"],
-            train_time,
-            validation_time,
-            epoch_time,
-            peak_gpu_memory_gb,
+            epoch, configured_epochs, train_loss,
+            metrics["HR@5"], metrics["HR@10"],
+            metrics["NDCG@5"], metrics["NDCG@10"],
+            train_time, validation_time, epoch_time, peak_gpu_memory_gb,
         )
 
+        # Standard JEPA retains raw validation NDCG@10 for checkpoint selection.
         if metrics["NDCG@10"] > best_ndcg10:
             best_ndcg10 = metrics["NDCG@10"]
             best_epoch = epoch
@@ -432,35 +347,30 @@ def train(config: dict) -> dict:
             best_epoch_record = dict(record)
             epochs_without_improvement = 0
 
-            save_checkpoint(
-                {
-                    "epoch": epoch,
-                    "model_state_dict": model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "scaler_state_dict": scaler.state_dict(),
-                    "metrics": metrics,
-                    "config": config,
-                },
-                best_checkpoint,
-            )
-
-            logger.info(
-                "Saved new best checkpoint: %s",
-                best_checkpoint,
-            )
+            if save_checkpoint_enabled:
+                save_checkpoint(
+                    {
+                        "epoch": epoch,
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optimizer.state_dict(),
+                        "scaler_state_dict": scaler.state_dict(),
+                        "metrics": metrics,
+                        "config": config,
+                    },
+                    best_checkpoint,
+                )
+                logger.info("Saved new best checkpoint: %s", best_checkpoint)
         else:
             epochs_without_improvement += 1
 
         if epochs_without_improvement >= patience:
             logger.info(
                 "Early stopping after %d epochs without validation "
-                "NDCG@10 improvement.",
-                patience,
+                "NDCG@10 improvement.", patience,
             )
             break
 
     synchronize_cuda(device)
-
     total_time = time.perf_counter() - total_start
     run_end = datetime.now().isoformat()
     completed_epochs = len(epoch_history)
@@ -468,7 +378,7 @@ def train(config: dict) -> dict:
     summary = {
         "model": "JEPA",
         "experiment_name": experiment_name,
-        "dataset": "{}".format(data_config.get("dataset_name", "unknown")),
+        "dataset": data_config.get("dataset_name", "unknown"),
         "run_start": run_start,
         "run_end": run_end,
         "device": str(device),
@@ -477,38 +387,35 @@ def train(config: dict) -> dict:
         "completed_epochs": completed_epochs,
         "best_epoch": best_epoch,
         "best_metrics": {
-            "HR@5": best_metrics.get("HR@5", 0.0),
-            "HR@10": best_metrics.get("HR@10", 0.0),
-            "NDCG@5": best_metrics.get("NDCG@5", 0.0),
-            "NDCG@10": best_metrics.get("NDCG@10", 0.0),
+            name: best_metrics.get(name, 0.0)
+            for name in ("HR@5", "HR@10", "NDCG@5", "NDCG@10")
         },
         "best_epoch_loss": best_epoch_record.get("loss"),
+        "best_selection_score": best_ndcg10 if best_epoch else None,
         "timing": {
             "total_training_time_seconds": total_time,
             "total_training_time_minutes": total_time / 60.0,
+            "total_train_only_seconds": total_train_time,
+            "time_to_best_epoch_seconds": sum(
+                row["epoch_time_seconds"] for row in epoch_history[:best_epoch]
+            ),
             "average_epoch_time_seconds": (
-                total_time / completed_epochs
-                if completed_epochs
-                else 0.0
+                sum(row["epoch_time_seconds"] for row in epoch_history)
+                / completed_epochs if completed_epochs else 0.0
             ),
             "average_train_time_seconds": (
-                total_train_time / completed_epochs
-                if completed_epochs
-                else 0.0
+                total_train_time / completed_epochs if completed_epochs else 0.0
             ),
             "average_validation_time_seconds": (
                 total_validation_time / completed_epochs
-                if completed_epochs
-                else 0.0
+                if completed_epochs else 0.0
             ),
         },
         "hardware": {
             "device": str(device),
+            "gpu": get_gpu_name(device),
             "peak_gpu_memory_gb": max(
-                (
-                    record["peak_gpu_memory_gb"]
-                    for record in epoch_history
-                ),
+                (row["peak_gpu_memory_gb"] for row in epoch_history),
                 default=0.0,
             ),
         },
@@ -528,6 +435,7 @@ def train(config: dict) -> dict:
             "length_bucketing": bucket_chunk_batches,
             "ema_decay": ema_decay,
             "patience": patience,
+            "save_checkpoint": save_checkpoint_enabled,
         },
         "model_configuration": model_config,
         "data": {
@@ -537,35 +445,28 @@ def train(config: dict) -> dict:
             "validation_batches": len(validation_loader),
         },
         "files": {
-            "checkpoint": str(best_checkpoint),
+            "checkpoint": str(best_checkpoint) if best_checkpoint else None,
             "epoch_history": str(history_path),
+            "run_summary": str(summary_path),
+            "config": str(config_path),
         },
     }
 
     save_run_summary(summary, summary_path)
-
     logger.info(
         "Training complete. Best epoch: %d | best NDCG@10: %.4f",
-        best_epoch,
-        best_ndcg10,
+        best_epoch, best_ndcg10,
     )
-    logger.info(
-        "Results directory: %s",
-        results_dir,
-    )
-
+    logger.info("Results directory: %s", results_dir)
     return summary
 
 
 def main() -> None:
-    """Command-line entry point."""
-
     parser = argparse.ArgumentParser(
-        description="Train a JEPA sequential recommender."
+        description="Train a standard JEPA sequential recommender."
     )
     add_config_args(parser)
     args = parser.parse_args()
-
     setup_logging()
     train(load_config_from_args(args))
 

@@ -1,7 +1,7 @@
 {
   "model": "BERT4Rec",
   "experiment_name": "bert4rec_tuned",
-  "dataset": "MovieLens-1M",
+  "dataset": "amazon_beauty",
   "run_start": "2026-11-15T19:56:39.431312",
   "run_end": "2026-11-15T21:08:51.283627",
   "device": "cuda",
