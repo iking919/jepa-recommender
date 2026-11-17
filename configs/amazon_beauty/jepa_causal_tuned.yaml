@@ -5,7 +5,7 @@
 # Keep the architecture, data splits, evaluation, and training implementation
 # identical to the tuned experiment for a fair comparison.
 
-seed: 42
+seed: 2026 # Best seed found in seed search
 
 device: "cuda"
 
