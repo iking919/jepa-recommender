@@ -1,4 +1,4 @@
-seed: 42
+seed: 2026
 device: cuda
 data:
   train_path: data/processed/amazon_beauty/jepa/train_context_target.parquet

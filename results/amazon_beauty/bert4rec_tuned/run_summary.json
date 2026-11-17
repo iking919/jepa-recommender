@@ -2,34 +2,34 @@
   "model": "BERT4Rec",
   "experiment_name": "bert4rec_tuned",
   "dataset": "amazon_beauty",
-  "run_start": "2026-11-16T17:42:06.594361",
-  "run_end": "2026-11-16T18:39:08.739350",
+  "run_start": "2026-11-17T10:16:58.877398",
+  "run_end": "2026-11-17T10:40:59.368479",
   "device": "cuda",
-  "seed": 42,
+  "seed": 123,
   "configured_epochs": 300,
-  "completed_epochs": 300,
-  "best_epoch": 128,
+  "completed_epochs": 128,
+  "best_epoch": 88,
   "best_metrics": {
-    "HR@5": 0.0638107588427313,
-    "HR@10": 0.09421812815811832,
-    "NDCG@5": 0.04353699031671069,
-    "NDCG@10": 0.0533340421156335
+    "HR@5": 0.06568886106515226,
+    "HR@10": 0.09417341143853687,
+    "NDCG@5": 0.04520462413044642,
+    "NDCG@10": 0.054389275978289485
   },
-  "best_epoch_loss": 4.803481488312495,
-  "best_selection_score": 0.0533340421156335,
+  "best_epoch_loss": 5.463140202417243,
+  "best_selection_score": 0.054389275978289485,
   "timing": {
-    "total_training_time_seconds": 3422.144977240823,
-    "total_training_time_minutes": 57.035749620680384,
-    "total_train_only_seconds": 485.1627953890711,
-    "time_to_best_epoch_seconds": 1456.318547308445,
-    "average_epoch_time_seconds": 11.275102131757885,
-    "average_train_time_seconds": 1.6172093179635703,
-    "average_validation_time_seconds": 9.657892813794314
+    "total_training_time_seconds": 1440.4910654909909,
+    "total_training_time_minutes": 24.008184424849848,
+    "total_train_only_seconds": 200.1074187681079,
+    "time_to_best_epoch_seconds": 960.7665578862652,
+    "average_epoch_time_seconds": 11.0632869396577,
+    "average_train_time_seconds": 1.563339209125843,
+    "average_validation_time_seconds": 9.499947730531858
   },
   "hardware": {
     "device": "cuda",
     "gpu": "NVIDIA A100 80GB PCIe",
-    "peak_gpu_memory_gb": 4.8286309242248535
+    "peak_gpu_memory_gb": 4.829236030578613
   },
   "model_parameters": {
     "total": 3532615,
@@ -46,7 +46,11 @@
     "use_scheduler": false,
     "scheduler_type": null,
     "evaluation_batch_size": 256,
-    "save_checkpoint": true
+    "save_checkpoint": true,
+    "num_epochs": 300,
+    "patience": 40,
+    "early_stopping_triggered": true,
+    "epochs_without_improvement": 40
   },
   "model_configuration": {
     "hidden_dim": 128,

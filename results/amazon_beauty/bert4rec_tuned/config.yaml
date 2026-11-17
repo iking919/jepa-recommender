@@ -1,4 +1,4 @@
-seed: 42
+seed: 123
 device: cuda
 data:
   train_sequences_path: data/processed/amazon_beauty/bert4rec/train_sequences.parquet
