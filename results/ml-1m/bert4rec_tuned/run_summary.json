@@ -1,34 +1,77 @@
 {
   "model": "BERT4Rec",
   "experiment_name": "bert4rec_tuned",
-  "dataset": "MovieLens-1M",
-  "run_start": "2026-10-13T21:26:45.284348",
-  "run_end": "2026-10-13T21:30:56.720986",
+  "dataset": "ml-1m",
+  "run_start": "2026-11-16T18:56:21.746775",
+  "run_end": "2026-11-16T19:01:49.783019",
   "device": "cuda",
   "seed": 42,
   "configured_epochs": 150,
   "completed_epochs": 150,
-  "best_epoch": 101,
-  "best_validation_metrics": {
-    "epoch": 101,
-    "loss": 5.196598452763841,
-    "learning_rate": 0.0002485766303603006,
-    "HR@5": 0.19552980132450332,
-    "HR@10": 0.28741721854304636,
-    "NDCG@5": 0.1319801600142092,
-    "NDCG@10": 0.16153705444791597,
-    "epoch_time_seconds": 1.627908576047048
+  "best_epoch": 96,
+  "best_metrics": {
+    "HR@5": 0.20066225165562915,
+    "HR@10": 0.2869205298013245,
+    "NDCG@5": 0.13351006801055493,
+    "NDCG@10": 0.16119925192765042
   },
+  "best_epoch_loss": 5.205553497541819,
+  "best_selection_score": 0.16119925192765042,
   "timing": {
-    "total_training_time_seconds": 251.43662655819207,
-    "total_training_time_minutes": 4.190610442636535,
-    "average_epoch_time_seconds": 1.676244177054614
+    "total_training_time_seconds": 328.03622834477574,
+    "total_training_time_minutes": 5.467270472412929,
+    "total_train_only_seconds": 78.58968231547624,
+    "time_to_best_epoch_seconds": 201.4411071529612,
+    "average_epoch_time_seconds": 2.0753802519664166,
+    "average_train_time_seconds": 0.5239312154365082,
+    "average_validation_time_seconds": 1.5514490365299085
+  },
+  "hardware": {
+    "device": "cuda",
+    "gpu": "NVIDIA A100 80GB PCIe",
+    "peak_gpu_memory_gb": 1.4890923500061035
   },
   "model_parameters": {
+    "total": 1300570,
     "trainable": 1300570
+  },
+  "training_configuration": {
+    "batch_size": 256,
+    "learning_rate": 0.001,
+    "weight_decay": 0.01,
+    "num_workers": 2,
+    "mixed_precision": true,
+    "amp_dtype": "bf16",
+    "fused_adamw": true,
+    "use_scheduler": true,
+    "scheduler_type": "cosine_annealing",
+    "evaluation_batch_size": 256,
+    "save_checkpoint": true,
+    "num_epochs": 150,
+    "patience": 150,
+    "early_stopping_triggered": false,
+    "epochs_without_improvement": 54
+  },
+  "model_configuration": {
+    "hidden_dim": 128,
+    "num_layers": 2,
+    "num_heads": 4,
+    "feed_forward_dim": 512,
+    "dropout": 0.1,
+    "pad_token_id": 0,
+    "mask_token_id": 1,
+    "vocab_size": 3418,
+    "max_seq_len": 200
+  },
+  "data": {
+    "training_samples": 6040,
+    "validation_samples": 6040,
+    "training_batches_per_epoch": 24
   },
   "files": {
     "checkpoint": "checkpoints/ml-1m/bert4rec_tuned/bert4rec_tuned_best.pt",
-    "training_history": "results/ml-1m/bert4rec_tuned/training_history.csv"
+    "epoch_history": "results/ml-1m/bert4rec_tuned/training_history.csv",
+    "run_summary": "results/ml-1m/bert4rec_tuned/run_summary.json",
+    "config": "results/ml-1m/bert4rec_tuned/config.yaml"
   }
 }
