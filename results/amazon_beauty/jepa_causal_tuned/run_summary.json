@@ -1,7 +1,7 @@
 {
   "model": "JEPA (causal one-pass)",
   "experiment_name": "jepa_causal_tuned",
-  "dataset": "unknown",
+  "dataset": "amazon_beauty",
   "run_start": "2026-11-16T17:11:16.313726",
   "run_end": "2026-11-16T17:39:45.202791",
   "device": "cuda",
