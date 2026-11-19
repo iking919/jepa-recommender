@@ -53,6 +53,7 @@ def test_trailing_mean():
 
 CFG = {
     "seed": 42,
+    "dataset": "ml-1m",
     "training": {"learning_rate": 0.0005, "compile": False, "num_epochs": 150},
     "output": {"experiment_name": "a", "checkpoint_dir": "x", "results_dir": "y",
                "best_checkpoint_name": "z.pt"},
@@ -76,8 +77,10 @@ def test_overrides_reject_typos_but_allow_plus():
 
 def test_name_sets_all_output_paths():
     out = apply_name(CFG, "run1")["output"]
-    assert out == {"experiment_name": "run1", "checkpoint_dir": "checkpoints/run1",
-                   "results_dir": "results/run1", "best_checkpoint_name": "run1_best.pt"}
+    assert out == {"experiment_name": "run1",
+                   "checkpoint_dir": "checkpoints/ml-1m/run1",
+                   "results_dir": "results/ml-1m/run1",
+                   "best_checkpoint_name": "run1_best.pt"}
 
 
 if __name__ == "__main__":

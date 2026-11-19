@@ -9,24 +9,21 @@ Model weights are kept separate from experiment metrics and training history, wh
 ```text
 checkpoints/
 ├── README.md
-├── bert4rec_baseline/
-│   └── bert4rec_baseline_best.pt
-├── bert4rec_tuned/
-│   └── bert4rec_tuned_best.pt
-├── jepa_baseline/
-│   └── jepa_baseline_best.pt
-├── jepa_tuned/
-│   └── jepa_tuned_best.pt
-├── jepa_causal_baseline/
-│   └── jepa_causal_baseline_best.pt
-└── jepa_causal_tuned/
-   └── jepa_causal_tuned_best.pt
-
+├── ml-1m/
+│   ├── bert4rec_tuned/
+│   │   └── bert4rec_tuned_best.pt
+│   ├── jepa_causal_tuned/
+│   │   └── jepa_causal_tuned_best.pt
+│   └── ...                        # one folder per experiment
+└── amazon_beauty/
+    └── ...                        # same experiment names
 ```
+
+Path: `checkpoints/<dataset>/<experiment>/<experiment>_best.pt`. Paths are built in `src/utils/paths.py`.
 
 ## Checkpoint Naming
 
-Each experiment has a dedicated directory:
+Each experiment has a dedicated directory per dataset. Examples:
 
 | Directory | Model |
 |---|---|
@@ -34,6 +31,8 @@ Each experiment has a dedicated directory:
 | `bert4rec_tuned/` | Tuned BERT4Rec |
 | `jepa_baseline/` | Baseline JEPA |
 | `jepa_tuned/` | Tuned JEPA |
+| `jepa_causal_baseline/` | Baseline causal JEPA |
+| `jepa_causal_tuned/` | Tuned causal JEPA |
 
 The `*_best.pt` checkpoint is intended to contain the model state selected during training based on validation performance.
 
@@ -57,18 +56,20 @@ Refer to the checkpoint-saving implementation for the exact fields saved by each
 
 ## Reproducing Checkpoints
 
-Each checkpoint should correspond to an experiment configuration under `configs/`.
+Each checkpoint should correspond to an experiment configuration under `configs/<dataset>/`.
 
 For example:
 
 ```text
 configs/
-└── bert4rec_tuned.yaml
+└── ml-1m/
+    └── bert4rec_tuned.yaml
         |
         v
 checkpoints/
-└── bert4rec_tuned/
-    └── bert4rec_tuned_best.pt
+└── ml-1m/
+    └── bert4rec_tuned/
+        └── bert4rec_tuned_best.pt
         |
         v
 scripts/

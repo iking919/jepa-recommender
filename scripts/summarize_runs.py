@@ -2,11 +2,11 @@
 Summarize several runs (for example one config over several seeds) with
 mean and standard deviation, so differences can be judged against noise.
 
-Reads results/<run>/run_summary.json (validation) and, if present,
-results/<run>/test_results.json (written by run_jepa_evaluation).
+Reads results/<dataset>/<run>/run_summary.json (validation) and, if present,
+results/<dataset>/<run>/test_results.json (written by run_jepa_evaluation).
 
 Usage:
-    python -m scripts.summarize_runs --runs "results/causal_const_s*" "results/causal_cos_s*"
+    python -m scripts.summarize_runs --runs "results/ml-1m/causal_const_s*" "results/ml-1m/causal_cos_s*"
 Each pattern is one group; each group gets its own mean +/- std line.
 """
 

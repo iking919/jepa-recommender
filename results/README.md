@@ -9,17 +9,22 @@ Model checkpoints are stored separately under `checkpoints/`.
 ```text
 results/
 ├── README.md
-├── bert4rec_baseline/
-├── bert4rec_tuned/
-├── jepa_baseline/
-├── jepa_tuned/
-├── jepa_causal_baseline/
-├── jepa_causal_tuned/
-├── jepa_grid_search/
-└── bert4rec_grid_search/
+├── ml-1m/
+│   ├── bert4rec_baseline/
+│   ├── bert4rec_tuned/
+│   ├── jepa_baseline/
+│   ├── jepa_tuned/
+│   ├── jepa_causal_baseline/
+│   ├── jepa_causal_tuned/
+│   ├── jepa_grid_search/
+│   ├── bert4rec_grid_search/
+│   ├── jepa_seed_search/
+│   └── bert4rec_seed_search/
+└── amazon_beauty/
+    └── ...                        # same experiment names
 ```
 
-Each directory corresponds to one experiment configuration.
+The first level is the dataset (same name as under `data/processed/`), the second is the experiment. Each directory corresponds to one experiment configuration on one dataset. Paths are built in `src/utils/paths.py`.
 
 ## Experiment Directories
 
@@ -31,8 +36,11 @@ Each directory corresponds to one experiment configuration.
 | `jepa_tuned/` | Tuned JEPA outputs |
 | `jepa_causal_baseline/` | Baseline JEPA causal outputs |
 | `jepa_causal_tuned/` | Tuned JEPA causal outputs |
-| `jepa_grid_search/` | JEPA causal hyperparameter grid search outputs |
-| `bert4rec_grid_search/` | BERT4Rec hyperparameter grid search outputs |
+| `jepa_grid_search/` | JEPA causal hyperparameter grid search reports |
+| `bert4rec_grid_search/` | BERT4Rec hyperparameter grid search reports |
+| `jepa_seed_search/`, `bert4rec_seed_search/` | Cross-seed comparison reports |
+
+Search folders may contain a `_scratch/` subfolder (the JEPA trainer's per-trial files). It is git-ignored and safe to delete.
 
 ## Result Files
 
@@ -42,6 +50,7 @@ Depending on the experiment pipeline, each directory may contain:
 |---|---|
 | `training_history.csv` | Epoch-level loss, validation metrics, and timing |
 | `run_summary.json` | Run configuration and summary information |
+| `config.yaml` | Fully resolved config the run used |
 | `test_results.json` | Final held-out test metrics |
 | `grid_search_report.json` | Final grid search results report |
 | `search_summary.csv` | Final grid search validation metrics |

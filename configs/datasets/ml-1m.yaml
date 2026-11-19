@@ -1,0 +1,11 @@
+# MovieLens-1M. Facts about the preprocessed dataset; these win over the
+# experiment config. Folder name must match data/{raw,interim,processed}/<name>.
+#
+# vocab_size = max mapped item id + 1  (0 = PAD, 1 = MASK, items start at 2).
+# Items: 3416 -> ids 2..3417 -> vocab_size 3418.
+name: ml-1m
+description: MovieLens-1M, leave-last-two-out split
+
+model:
+  vocab_size: 3418
+  max_seq_len: 200

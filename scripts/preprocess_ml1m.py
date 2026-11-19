@@ -1,10 +1,11 @@
+
 """
 preprocess_ml1m.py
 
 Preprocesses the MovieLens-1M dataset for the JEPA Recommender project.
 
-This script orchestrates the preprocessing pipeline using reusable
-functions from src/data/.
+The script contains all MovieLens-specific preprocessing functionality
+directly, while retaining the existing leave-last-two-out split.
 
 Pipeline:
 1. Load raw MovieLens-1M ratings, users, and movies.
@@ -55,18 +56,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 
-from src.data.preprocessing import (
-    load_movielens,
-    sort_ratings_chronologically,
-    filter_rare_items,
-    build_user_sequences,
-    create_movie_mapping,
-    apply_movie_mapping,
-)
-
-from src.data.splits import (
-    leave_last_two_out,
-)
+from src.data.splits import leave_last_two_out
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +84,177 @@ PROCESSED_DIR = os.path.join(
 
 MAX_SEQ_LEN = 200
 MIN_ITEM_INTERACTIONS = 5
+
+PAD_TOKEN = 0
+MASK_TOKEN = 1
+ITEM_ID_OFFSET = 2
+
+
+# ---------------------------------------------------------------------------
+# MovieLens-1M Preprocessing Utilities
+# ---------------------------------------------------------------------------
+
+def load_movielens(raw_dir: str):
+    """Load the MovieLens-1M ratings, users, and movie metadata files."""
+
+    ratings = pd.read_csv(
+        f"{raw_dir}/ratings.dat",
+        sep="::",
+        engine="python",
+        names=["user_id", "movie_id", "rating", "timestamp"],
+    )
+
+    users = pd.read_csv(
+        f"{raw_dir}/users.dat",
+        sep="::",
+        engine="python",
+        names=["user_id", "gender", "age", "occupation", "zip_code"],
+    )
+
+    movies = pd.read_csv(
+        f"{raw_dir}/movies.dat",
+        sep="::",
+        engine="python",
+        names=["movie_id", "title", "genres"],
+        encoding="latin-1",
+    )
+
+    return ratings, users, movies
+
+
+def sort_ratings_chronologically(
+    ratings: pd.DataFrame,
+) -> pd.DataFrame:
+    """Sort interactions chronologically within each user."""
+
+    ratings = ratings.copy()
+
+    ratings["datetime"] = pd.to_datetime(
+        ratings["timestamp"],
+        unit="s",
+    )
+
+    return ratings.sort_values(
+        by=["user_id", "timestamp"]
+    ).reset_index(drop=True)
+
+
+def filter_rare_items(
+    ratings: pd.DataFrame,
+    min_item_interactions: int = 5,
+) -> pd.DataFrame:
+    """Remove items with fewer than min_item_interactions ratings."""
+
+    item_counts = ratings.groupby("movie_id").size()
+
+    valid_items = item_counts[
+        item_counts >= min_item_interactions
+    ].index
+
+    return ratings[
+        ratings["movie_id"].isin(valid_items)
+    ].copy()
+
+
+def build_user_sequences(
+    ratings: pd.DataFrame,
+    max_seq_len: int = 200,
+) -> pd.DataFrame:
+    """Build chronological item sequences for each user."""
+
+    sequences = (
+        ratings.groupby("user_id")["movie_id"]
+        .apply(list)
+        .reset_index(name="sequence")
+    )
+
+    sequences["sequence"] = sequences["sequence"].apply(
+        lambda sequence: sequence[-max_seq_len:]
+    )
+
+    sequences["sequence_length"] = (
+        sequences["sequence"].apply(len)
+    )
+
+    return sequences
+
+
+def create_movie_mapping(
+    df_split: pd.DataFrame,
+    movies: pd.DataFrame,
+):
+    """
+    Create contiguous model IDs for all items appearing in the split.
+
+    IDs 0 and 1 remain reserved for PAD and MASK.
+    """
+
+    all_movies = set()
+
+    for sequence in df_split["train_sequence"]:
+        all_movies.update(sequence)
+
+    all_movies.update(
+        df_split["validation_item"].tolist()
+    )
+
+    all_movies.update(
+        df_split["test_item"].tolist()
+    )
+
+    unique_movie_ids = sorted(all_movies)
+
+    movie_map = {
+        original_id: index + ITEM_ID_OFFSET
+        for index, original_id in enumerate(unique_movie_ids)
+    }
+
+    mapping = pd.DataFrame(
+        [
+            {
+                "original_movie_id": original_id,
+                "mapped_movie_id": mapped_id,
+            }
+            for original_id, mapped_id in movie_map.items()
+        ]
+    )
+
+    mapping = mapping.merge(
+        movies[["movie_id", "title"]],
+        left_on="original_movie_id",
+        right_on="movie_id",
+        how="left",
+    ).drop(columns=["movie_id"])
+
+    return movie_map, mapping
+
+
+def apply_movie_mapping(
+    df_split: pd.DataFrame,
+    movie_map: dict[int, int],
+) -> pd.DataFrame:
+    """Convert original movie IDs to contiguous model IDs."""
+
+    df_split = df_split.copy()
+
+    df_split["train_sequence"] = (
+        df_split["train_sequence"].apply(
+            lambda sequence: [
+                movie_map[movie_id]
+                for movie_id in sequence
+            ]
+        )
+    )
+
+    df_split["validation_item"] = (
+        df_split["validation_item"].map(movie_map)
+    )
+
+    df_split["test_item"] = (
+        df_split["test_item"].map(movie_map)
+    )
+
+    return df_split
 
 
 # ---------------------------------------------------------------------------
@@ -149,9 +310,7 @@ def generate_bert4rec_datasets(
     processed_dir,
     max_seq_len=MAX_SEQ_LEN,
 ):
-    """
-    Generate BERT4Rec-specific training, validation, and test datasets.
-    """
+    """Generate BERT4Rec-specific training, validation, and test datasets."""
 
     print(
         "\n=== Step 6: Generating BERT4Rec-Specific Datasets ==="
@@ -565,13 +724,8 @@ def preprocess_pipeline(
         f"{len(movie_map):,}"
     )
 
-    print(
-        "PAD token: 0"
-    )
-
-    print(
-        "MASK token: 1"
-    )
+    print("PAD token: 0")
+    print("MASK token: 1")
 
     print(
         f"Vocabulary size: "

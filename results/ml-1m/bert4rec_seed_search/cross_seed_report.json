@@ -1,0 +1,196 @@
+{
+  "experiment": "cross-seed comparison",
+  "model": "bert4rec",
+  "config_path": "/home/kingi/jepa-recommender/configs/ml-1m/bert4rec_tuned.yaml",
+  "started_at": "2026-10-20T11:10:35.340286-04:00",
+  "updated_at": "2026-10-20T11:31:42.857576-04:00",
+  "completed": true,
+  "requested_seeds": [
+    42,
+    123,
+    456,
+    789,
+    2026
+  ],
+  "total_seeds": 5,
+  "successful_runs": 5,
+  "failed_runs": 0,
+  "selection_metric": "validation NDCG@10",
+  "test_set_evaluated": false,
+  "config_changed": "seed only",
+  "metric_summary": [
+    {
+      "metric": "HR@5",
+      "n": 5,
+      "mean": 0.1979139072847682,
+      "median": 0.198841059602649,
+      "std": 0.0028975875021728962,
+      "min": 0.19337748344370861,
+      "max": 0.20049668874172186
+    },
+    {
+      "metric": "HR@10",
+      "n": 5,
+      "mean": 0.29291390728476824,
+      "median": 0.2948675496688742,
+      "std": 0.005134319249559441,
+      "min": 0.28725165562913907,
+      "max": 0.2986754966887417
+    },
+    {
+      "metric": "NDCG@5",
+      "n": 5,
+      "mean": 0.1316556104681224,
+      "median": 0.1330969125628159,
+      "std": 0.0025105917145496143,
+      "min": 0.1274941812546346,
+      "max": 0.13340523373817256
+    },
+    {
+      "metric": "NDCG@10",
+      "n": 5,
+      "mean": 0.1621470389406498,
+      "median": 0.16381420812891337,
+      "std": 0.002776949989257733,
+      "min": 0.15766017521826262,
+      "max": 0.16421211345287864
+    },
+    {
+      "metric": "best_selection_score",
+      "n": 5,
+      "mean": 0.1621470389406498,
+      "median": 0.16381420812891337,
+      "std": 0.002776949989257733,
+      "min": 0.15766017521826262,
+      "max": 0.16421211345287864
+    },
+    {
+      "metric": "best_epoch",
+      "n": 5,
+      "mean": 124.0,
+      "median": 126.0,
+      "std": 10.222524150130436,
+      "min": 111.0,
+      "max": 134.0
+    },
+    {
+      "metric": "completed_epochs",
+      "n": 5,
+      "mean": 150.0,
+      "median": 150.0,
+      "std": 0.0,
+      "min": 150.0,
+      "max": 150.0
+    },
+    {
+      "metric": "elapsed_seconds",
+      "n": 5,
+      "mean": 253.3605096675921,
+      "median": 254.33110696007498,
+      "std": 4.230400559579756,
+      "min": 247.6135192399379,
+      "max": 258.6088594230823
+    },
+    {
+      "metric": "average_epoch_seconds",
+      "n": 5,
+      "mean": 1.689070064450614,
+      "median": 1.6955407130671665,
+      "std": 0.028202670397198388,
+      "min": 1.6507567949329192,
+      "max": 1.7240590628205488
+    }
+  ],
+  "best_seed_by_validation_ndcg10": {
+    "seed": 123,
+    "status": "SUCCESS",
+    "best_epoch": 116,
+    "completed_epochs": 150,
+    "HR@5": 0.198841059602649,
+    "HR@10": 0.29602649006622517,
+    "NDCG@5": 0.1330969125628159,
+    "NDCG@10": 0.16421211345287864,
+    "best_selection_score": 0.16421211345287864,
+    "elapsed_seconds": 258.6088594230823,
+    "average_epoch_seconds": 1.7240590628205488,
+    "trainer_timing": {},
+    "error": null
+  },
+  "runs": [
+    {
+      "seed": 42,
+      "status": "SUCCESS",
+      "best_epoch": 126,
+      "completed_epochs": 150,
+      "HR@5": 0.20049668874172186,
+      "HR@10": 0.28774834437086094,
+      "NDCG@5": 0.13320981462583062,
+      "NDCG@10": 0.1612233594481797,
+      "best_selection_score": 0.1612233594481797,
+      "elapsed_seconds": 250.89309114799835,
+      "average_epoch_seconds": 1.6726206076533223,
+      "trainer_timing": {},
+      "error": null
+    },
+    {
+      "seed": 123,
+      "status": "SUCCESS",
+      "best_epoch": 116,
+      "completed_epochs": 150,
+      "HR@5": 0.198841059602649,
+      "HR@10": 0.29602649006622517,
+      "NDCG@5": 0.1330969125628159,
+      "NDCG@10": 0.16421211345287864,
+      "best_selection_score": 0.16421211345287864,
+      "elapsed_seconds": 258.6088594230823,
+      "average_epoch_seconds": 1.7240590628205488,
+      "trainer_timing": {},
+      "error": null
+    },
+    {
+      "seed": 456,
+      "status": "SUCCESS",
+      "best_epoch": 134,
+      "completed_epochs": 150,
+      "HR@5": 0.1968543046357616,
+      "HR@10": 0.2986754966887417,
+      "NDCG@5": 0.13107191015915842,
+      "NDCG@10": 0.1638253384550147,
+      "best_selection_score": 0.1638253384550147,
+      "elapsed_seconds": 247.6135192399379,
+      "average_epoch_seconds": 1.6507567949329192,
+      "trainer_timing": {},
+      "error": null
+    },
+    {
+      "seed": 789,
+      "status": "SUCCESS",
+      "best_epoch": 133,
+      "completed_epochs": 150,
+      "HR@5": 0.2,
+      "HR@10": 0.2948675496688742,
+      "NDCG@5": 0.13340523373817256,
+      "NDCG@10": 0.16381420812891337,
+      "best_selection_score": 0.16381420812891337,
+      "elapsed_seconds": 254.33110696007498,
+      "average_epoch_seconds": 1.6955407130671665,
+      "trainer_timing": {},
+      "error": null
+    },
+    {
+      "seed": 2026,
+      "status": "SUCCESS",
+      "best_epoch": 111,
+      "completed_epochs": 150,
+      "HR@5": 0.19337748344370861,
+      "HR@10": 0.28725165562913907,
+      "NDCG@5": 0.1274941812546346,
+      "NDCG@10": 0.15766017521826262,
+      "best_selection_score": 0.15766017521826262,
+      "elapsed_seconds": 255.35597156686708,
+      "average_epoch_seconds": 1.7023731437791139,
+      "trainer_timing": {},
+      "error": null
+    }
+  ]
+}

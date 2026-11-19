@@ -1,0 +1,77 @@
+{
+  "model": "BERT4Rec",
+  "experiment_name": "bert4rec_tuned",
+  "dataset": "amazon_beauty",
+  "run_start": "2026-11-17T10:16:58.877398",
+  "run_end": "2026-11-17T10:40:59.368479",
+  "device": "cuda",
+  "seed": 123,
+  "configured_epochs": 300,
+  "completed_epochs": 128,
+  "best_epoch": 88,
+  "best_metrics": {
+    "HR@5": 0.06568886106515226,
+    "HR@10": 0.09417341143853687,
+    "NDCG@5": 0.04520462413044642,
+    "NDCG@10": 0.054389275978289485
+  },
+  "best_epoch_loss": 5.463140202417243,
+  "best_selection_score": 0.054389275978289485,
+  "timing": {
+    "total_training_time_seconds": 1440.4910654909909,
+    "total_training_time_minutes": 24.008184424849848,
+    "total_train_only_seconds": 200.1074187681079,
+    "time_to_best_epoch_seconds": 960.7665578862652,
+    "average_epoch_time_seconds": 11.0632869396577,
+    "average_train_time_seconds": 1.563339209125843,
+    "average_validation_time_seconds": 9.499947730531858
+  },
+  "hardware": {
+    "device": "cuda",
+    "gpu": "NVIDIA A100 80GB PCIe",
+    "peak_gpu_memory_gb": 4.829236030578613
+  },
+  "model_parameters": {
+    "total": 3532615,
+    "trainable": 3532615
+  },
+  "training_configuration": {
+    "batch_size": 256,
+    "learning_rate": 0.0003,
+    "weight_decay": 0.05,
+    "num_workers": 2,
+    "mixed_precision": true,
+    "amp_dtype": "bf16",
+    "fused_adamw": true,
+    "use_scheduler": false,
+    "scheduler_type": null,
+    "evaluation_batch_size": 256,
+    "save_checkpoint": true,
+    "num_epochs": 300,
+    "patience": 40,
+    "early_stopping_triggered": true,
+    "epochs_without_improvement": 40
+  },
+  "model_configuration": {
+    "hidden_dim": 128,
+    "num_layers": 2,
+    "num_heads": 4,
+    "feed_forward_dim": 512,
+    "dropout": 0.2,
+    "pad_token_id": 0,
+    "mask_token_id": 1,
+    "vocab_size": 12103,
+    "max_seq_len": 200
+  },
+  "data": {
+    "training_samples": 22363,
+    "validation_samples": 22363,
+    "training_batches_per_epoch": 88
+  },
+  "files": {
+    "checkpoint": "checkpoints/amazon_beauty/bert4rec_tuned/bert4rec_tuned_best.pt",
+    "epoch_history": "results/amazon_beauty/bert4rec_tuned/training_history.csv",
+    "run_summary": "results/amazon_beauty/bert4rec_tuned/run_summary.json",
+    "config": "results/amazon_beauty/bert4rec_tuned/config.yaml"
+  }
+}

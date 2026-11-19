@@ -1,0 +1,40 @@
+# JEPA baseline configuration.
+#
+# Baseline architecture used before hyperparameter tuning.
+
+seed: 42
+
+device: "cuda"
+
+data:
+  train_path: "data/processed/{dataset}/jepa/train_context_target.parquet"
+  validation_path: "data/processed/{dataset}/jepa/validation.parquet"
+  test_path: "data/processed/{dataset}/jepa/test.parquet"
+
+model:
+  # vocab_size and max_seq_len come from configs/datasets/<dataset>.yaml
+  hidden_dim: 128
+  num_layers: 2
+  num_heads: 4
+  feed_forward_dim: 512
+  dropout: 0.1
+  pad_token_id: 0
+
+training:
+  batch_size: 64
+  learning_rate: 0.0001
+  weight_decay: 0.01
+  num_epochs: 10
+  patience: 3
+  ema_decay: 0.996
+  mixed_precision: true
+  amp_dtype: "float16"      # "bfloat16" removes the need for loss scaling
+  compile: false             # torch.compile the training forward pass
+  trim_padding: false        # off by default; benchmark before enabling
+  length_bucketing: 0        # >1 = sort by length within N-batch chunks
+  num_workers: 0
+
+output:
+  experiment_name: "jepa_baseline"
+  # Outputs go to results/<dataset>/<experiment_name> and
+  # checkpoints/<dataset>/<experiment_name> (derived; see src/utils/paths.py).

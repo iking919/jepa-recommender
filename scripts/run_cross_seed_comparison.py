@@ -18,15 +18,19 @@ BERT4Rec:
         config, save_artifacts=False
     )
 
+Reports go to results/<dataset>/<model>_seed_search/ unless --output-dir is
+given. JEPA's per-seed trainer artifacts go to a reused ``_scratch/`` folder
+inside that directory (no checkpoints), so this script never overwrites the
+real experiment under results/<dataset>/<experiment>/.
+
 Example:
     python -m scripts.run_cross_seed_comparison \
-        --config configs/jepa_causal_tuned.yaml \
-        --output-dir results/jepa_seed_search \
+        --config configs/ml-1m/jepa_causal_tuned.yaml \
+        --dataset amazon_beauty \
         --allow-existing
 
     python -m scripts.run_cross_seed_comparison \
-        --config configs/bert4rec_tuned.yaml \
-        --output-dir results/bert4rec_seed_search \
+        --config configs/ml-1m/bert4rec_tuned.yaml \
         --allow-existing
 """
 
@@ -54,6 +58,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.utils.config import load_config  # noqa: E402
+from src.utils.paths import scratch_dir, search_dir  # noqa: E402
 
 LOGGER = logging.getLogger("cross_seed_comparison")
 
@@ -107,16 +114,6 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
         file.write("\n")
 
     temporary_path.replace(path)
-
-
-def load_config(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as file:
-        config = yaml.safe_load(file)
-
-    if not isinstance(config, dict):
-        raise ValueError(f"Expected a YAML mapping in {path}")
-
-    return config
 
 
 def detect_model(config: dict[str, Any], requested: str) -> str:
@@ -248,10 +245,20 @@ def train_one_seed(
     model_type: str,
     base_config: dict[str, Any],
     seed: int,
+    scratch: Path,
 ) -> dict[str, Any]:
     """Train one model with a copied config and a different seed."""
     trial_config = copy.deepcopy(base_config)
     trial_config["seed"] = seed
+
+    if model_type == "jepa":
+        # The JEPA trainer always writes history/summary/config files.
+        # Send them to a scratch folder (and skip checkpoints) so seed runs
+        # cannot overwrite the real experiment's results or checkpoint.
+        trial_config["training"]["save_checkpoint"] = False
+        trial_config["output"]["results_dir"] = scratch.as_posix()
+        trial_config["output"]["checkpoint_dir"] = None
+        trial_config["output"]["best_checkpoint_name"] = None
 
     start = time.perf_counter()
 
@@ -445,15 +452,20 @@ def run(args: argparse.Namespace) -> int:
     if not config_path.is_file():
         raise FileNotFoundError(f"Config not found: {config_path}")
 
-    base_config = load_config(config_path)
+    base_config = load_config(config_path, dataset=args.dataset)
+    dataset = base_config["dataset"]
     model_type = detect_model(base_config, args.model)
 
+    output_dir = args.output_dir or search_dir(
+        dataset, f"{model_type}_seed_search"
+    )
     output_dir = (
-        args.output_dir
-        if args.output_dir.is_absolute()
-        else PROJECT_ROOT / args.output_dir
+        output_dir
+        if output_dir.is_absolute()
+        else PROJECT_ROOT / output_dir
     )
     output_dir = output_dir.resolve()
+    scratch = scratch_dir(output_dir)
 
     seeds = list(dict.fromkeys(args.seeds))
     if not seeds:
@@ -513,6 +525,7 @@ def run(args: argparse.Namespace) -> int:
     }
 
     LOGGER.info("Model: %s", model_type)
+    LOGGER.info("Dataset: %s", dataset)
     LOGGER.info("Config: %s", config_path)
     LOGGER.info("Output: %s", output_dir)
     LOGGER.info("Seeds: %s", seeds)
@@ -547,7 +560,9 @@ def run(args: argparse.Namespace) -> int:
         ]
 
         try:
-            record = train_one_seed(model_type, base_config, seed)
+            record = train_one_seed(
+                model_type, base_config, seed, scratch
+            )
 
             if record.get("NDCG@10") is None:
                 raise ValueError(
@@ -665,10 +680,18 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--dataset",
+        default=None,
+        help="Dataset (a file in configs/datasets/). Overrides the config's "
+             "`dataset:` key.",
+    )
+
+    parser.add_argument(
         "--output-dir",
         type=Path,
-        required=True,
-        help="Directory for aggregate cross-seed reports.",
+        default=None,
+        help="Directory for aggregate cross-seed reports. "
+             "Default: results/<dataset>/<model>_seed_search",
     )
 
     parser.add_argument(

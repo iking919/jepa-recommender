@@ -14,7 +14,7 @@ import torch
 from src.evaluation.evaluate import evaluate_bert4rec
 from src.models import BERT4Rec
 from src.utils.checkpointing import load_checkpoint
-from src.utils.config import load_config
+from src.utils.config import add_config_args, load_config_from_args
 from src.utils.logging import setup_logging
 
 
@@ -22,21 +22,19 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Evaluate a trained BERT4Rec model on the test set."
     )
-    parser.add_argument(
-        "--config",
-        required=True,
-        help="Path to the BERT4Rec YAML configuration.",
-    )
+    add_config_args(parser)
     parser.add_argument(
         "--checkpoint",
-        required=True,
-        help="Path to the trained BERT4Rec checkpoint.",
+        default=None,
+        help="Path to the trained BERT4Rec checkpoint. Defaults to the run's "
+             "own checkpoint: checkpoints/<dataset>/<experiment>/"
+             "<experiment>_best.pt",
     )
     args = parser.parse_args()
 
     setup_logging()
 
-    config = load_config(args.config)
+    config = load_config_from_args(args)
     model_config = config["model"]
     data_config = config["data"]
     output_config = config["output"]
@@ -64,7 +62,12 @@ def main() -> None:
         pad_token_id=model_config["pad_token_id"],
     ).to(device)
 
-    checkpoint = load_checkpoint(args.checkpoint, map_location=device)
+    checkpoint_path = Path(
+        args.checkpoint
+        or Path(output_config["checkpoint_dir"])
+        / output_config["best_checkpoint_name"]
+    )
+    checkpoint = load_checkpoint(checkpoint_path, map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])
 
     metrics = evaluate_bert4rec(
@@ -94,7 +97,8 @@ def main() -> None:
         json.dumps(
             {
                 "model": "BERT4Rec",
-                "checkpoint": str(args.checkpoint),
+                "dataset": config["dataset"],
+                "checkpoint": str(checkpoint_path),
                 "metrics": {
                     name: metrics[name]
                     for name in ("HR@5", "HR@10", "NDCG@5", "NDCG@10")
