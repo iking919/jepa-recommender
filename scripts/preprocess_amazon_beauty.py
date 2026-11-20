@@ -1,142 +1,79 @@
+"""Preprocess the Amazon Beauty 5-core dataset into model-ready datasets.
 
-"""
-preprocess_amazon_beauty.py
+Source: Stanford SNAP Amazon product reviews, Beauty 5-core subset
+(https://snap.stanford.edu/data/amazon/productGraph/categoryFiles/
+reviews_Beauty_5.json.gz). Fetch it with ``scripts.download_amazon_beauty``.
 
-Preprocesses the Stanford SNAP Amazon Beauty 5-core dataset
-for the JEPA Recommender project.
+Usage (from the repository root):
+    python -m scripts.preprocess_amazon_beauty
 
-Dataset:
-    https://snap.stanford.edu/data/amazon/productGraph/
-    categoryFiles/reviews_Beauty_5.json.gz
-
-Pipeline:
-1. Load raw Amazon Beauty 5-core reviews from JSON.
-2. Extract reviewerID, asin, and unixReviewTime.
-3. Sort interactions chronologically by user.
-4. Filter products with fewer than the minimum number of interactions.
-5. Build chronological user sequences and truncate to max_seq_len.
-6. Perform a leave-last-two-out train/validation/test split.
-7. Create contiguous product IDs:
-       PAD = 0
-       MASK = 1
-       Products start at ID = 2
-8. Save shared intermediate preprocessing artifacts.
-9. Generate BERT4Rec-specific datasets.
-10. Generate JEPA-specific context-target pairs.
-11. Save model-specific datasets under data/processed/amazon_beauty/.
-
-Usage:
-    python scripts/preprocess_amazon_beauty.py
-
-Expected raw data location:
+Reads:
     data/raw/amazon_beauty/reviews_Beauty_5.json
 
-Expected intermediate output:
-    data/interim/amazon_beauty/
+Writes:
+    data/interim/amazon_beauty/               shared intermediate files
+    data/processed/amazon_beauty/bert4rec/    BERT4Rec train/validation/test
+    data/processed/amazon_beauty/jepa/        JEPA context-target pairs
 
-Expected processed output:
-    data/processed/amazon_beauty/
+Steps: load reviews (``reviewerID``, ``asin``, ``unixReviewTime``), sort
+chronologically per user, then the shared pipeline in
+``src.data.preprocessing`` (filter rare products, build sequences,
+leave-last-two-out split, contiguous item IDs, model-specific files).
 """
 
 from __future__ import annotations
 
 import json
-import os
-import sys
+import logging
+from pathlib import Path
 
 import pandas as pd
 
-
-# ---------------------------------------------------------------------------
-# Project Path Configuration
-# ---------------------------------------------------------------------------
-
-PROJECT_ROOT = os.path.dirname(
-    os.path.dirname(
-        os.path.abspath(__file__)
-    )
+from src.data.preprocessing import (
+    MAX_SEQ_LEN,
+    MIN_ITEM_INTERACTIONS,
+    apply_item_id_map,
+    build_item_id_map,
+    preprocess_ratings,
+    write_datasets,
+)
+from src.utils.logging_utils import setup_logging
+from src.utils.paths import (
+    INTERIM_DATA_ROOT,
+    PROCESSED_DATA_ROOT,
+    RAW_DATA_ROOT,
 )
 
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
+logger = logging.getLogger("preprocess_amazon_beauty")
+
+DATASET = "amazon_beauty"
+RAW_FILE = RAW_DATA_ROOT / DATASET / "reviews_Beauty_5.json"
+
+PROGRESS_INTERVAL = 100_000
 
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
+def load_amazon_beauty(raw_file: Path) -> pd.DataFrame:
+    """Load the Beauty 5-core reviews (one JSON record per line).
 
-RAW_FILE = os.path.join(
-    PROJECT_ROOT,
-    "data",
-    "raw",
-    "amazon_beauty",
-    "reviews_Beauty_5.json",
-)
-
-INTERIM_DIR = os.path.join(
-    PROJECT_ROOT,
-    "data",
-    "interim",
-)
-
-PROCESSED_DIR = os.path.join(
-    PROJECT_ROOT,
-    "data",
-    "processed",
-)
-
-MAX_SEQ_LEN = 200
-MIN_ITEM_INTERACTIONS = 5
-
-PAD_TOKEN_ID = 0
-MASK_TOKEN_ID = 1
-FIRST_ITEM_ID = 2
-
-
-# ---------------------------------------------------------------------------
-# Load Raw Stanford SNAP Amazon Beauty Dataset
-# ---------------------------------------------------------------------------
-
-def load_amazon_beauty(raw_file):
-    """
-    Load Stanford SNAP Amazon Beauty 5-core reviews.
-
-    The SNAP dataset contains one JSON review record per line.
-
-    Relevant source fields:
-
-        reviewerID      -> user_id
-        asin            -> item_id
-        unixReviewTime  -> timestamp
-
-    ASIN is used directly as the product identifier.
-
-    Note:
-        unixReviewTime is expressed in Unix seconds, not
-        milliseconds. Its absolute scale does not affect
-        chronological sorting.
+    Field mapping: ``reviewerID`` -> ``user_id``, ``asin`` -> ``item_id``,
+    ``unixReviewTime`` -> ``timestamp`` (Unix seconds). Malformed or
+    incomplete records are skipped. ``_row_id`` records the line number and
+    is used later to break timestamp ties deterministically.
     """
 
-    print("\n=== Loading SNAP Amazon Beauty 5-core Reviews ===")
+    raw_file = Path(raw_file)
 
-    if not os.path.isfile(raw_file):
+    if not raw_file.is_file():
         raise FileNotFoundError(
             f"Amazon Beauty 5-core dataset not found: {raw_file}"
         )
 
     records = []
-
     invalid_records = 0
     total_lines = 0
 
-    with open(
-        raw_file,
-        "r",
-        encoding="utf-8",
-    ) as file:
-
+    with raw_file.open("r", encoding="utf-8") as file:
         for line_number, line in enumerate(file, start=1):
-
             total_lines += 1
 
             try:
@@ -146,11 +83,7 @@ def load_amazon_beauty(raw_file):
                 item_id = review.get("asin")
                 timestamp = review.get("unixReviewTime")
 
-                if (
-                    user_id is None
-                    or item_id is None
-                    or timestamp is None
-                ):
+                if user_id is None or item_id is None or timestamp is None:
                     invalid_records += 1
                     continue
 
@@ -163,881 +96,106 @@ def load_amazon_beauty(raw_file):
                     }
                 )
 
-            except (
-                json.JSONDecodeError,
-                TypeError,
-                ValueError,
-            ):
+            except (json.JSONDecodeError, TypeError, ValueError):
                 invalid_records += 1
 
-            if total_lines % 100_000 == 0:
-                print(
-                    f"Processed {total_lines:,} JSON records..."
-                )
+            if total_lines % PROGRESS_INTERVAL == 0:
+                logger.info("Processed %s JSON records", f"{total_lines:,}")
 
     ratings = pd.DataFrame(records)
 
     if ratings.empty:
-        raise RuntimeError(
-            "No valid Amazon Beauty interactions were loaded."
-        )
+        raise RuntimeError("No valid Amazon Beauty interactions were loaded.")
 
-    print(
-        f"\nTotal JSON records: {total_lines:,}"
-    )
-
-    print(
-        f"Valid interactions: {len(ratings):,}"
-    )
-
-    print(
-        f"Invalid or incomplete records: {invalid_records:,}"
-    )
-
-    print(
-        f"Unique users: {ratings['user_id'].nunique():,}"
-    )
-
-    print(
-        f"Unique products: {ratings['item_id'].nunique():,}"
-    )
-
-    print(
-        f"Timestamp range: "
-        f"{ratings['timestamp'].min()} - "
-        f"{ratings['timestamp'].max()}"
+    logger.info("Total JSON records: %s", f"{total_lines:,}")
+    logger.info("Valid interactions: %s", f"{len(ratings):,}")
+    logger.info("Invalid or incomplete records: %s", f"{invalid_records:,}")
+    logger.info("Unique users: %s", f"{ratings['user_id'].nunique():,}")
+    logger.info("Unique products: %s", f"{ratings['item_id'].nunique():,}")
+    logger.info(
+        "Timestamp range: %s - %s",
+        ratings["timestamp"].min(),
+        ratings["timestamp"].max(),
     )
 
     return ratings
 
 
-# ---------------------------------------------------------------------------
-# Chronological Sorting
-# ---------------------------------------------------------------------------
+def sort_ratings_chronologically(ratings: pd.DataFrame) -> pd.DataFrame:
+    """Sort by user, then timestamp, then original line order.
 
-def sort_ratings_chronologically(ratings):
-    """
-    Sort interactions chronologically within each user.
-
-    Original JSON line order is used as a deterministic
-    tie-breaker when timestamps are identical.
+    The line order makes the result deterministic when timestamps tie.
     """
 
-    print("\n=== Sorting Interactions Chronologically ===")
-
-    ratings = ratings.sort_values(
-        by=[
-            "user_id",
-            "timestamp",
-            "_row_id",
-        ],
+    return ratings.sort_values(
+        by=["user_id", "timestamp", "_row_id"],
         kind="mergesort",
     ).reset_index(drop=True)
 
-    return ratings
 
+def build_item_mapping_table(item_map: dict[str, int]) -> pd.DataFrame:
+    """Tabulate original (ASIN) and mapped item IDs."""
 
-# ---------------------------------------------------------------------------
-# Filter Rare Items
-# ---------------------------------------------------------------------------
+    original_ids = list(item_map)
 
-def filter_rare_items(
-    ratings,
-    min_item_interactions=MIN_ITEM_INTERACTIONS,
-):
-    """
-    Remove products with fewer than the minimum number
-    of interactions.
-
-    Filtering is performed using ASIN.
-
-    The SNAP Beauty 5-core dataset already enforces a
-    minimum of five reviews per user and product. This
-    filtering step is retained for consistency with the
-    existing preprocessing pipeline.
-    """
-
-    print("\n=== Filtering Rare Products ===")
-
-    item_counts = ratings["item_id"].value_counts()
-
-    valid_items = item_counts[
-        item_counts >= min_item_interactions
-    ].index
-
-    ratings_filtered = ratings[
-        ratings["item_id"].isin(valid_items)
-    ].copy()
-
-    print(
-        f"Minimum product interactions: "
-        f"{min_item_interactions}"
-    )
-
-    print(
-        f"Products before filtering: "
-        f"{ratings['item_id'].nunique():,}"
-    )
-
-    print(
-        f"Products after filtering: "
-        f"{ratings_filtered['item_id'].nunique():,}"
-    )
-
-    print(
-        f"Interactions before filtering: "
-        f"{len(ratings):,}"
-    )
-
-    print(
-        f"Interactions after filtering: "
-        f"{len(ratings_filtered):,}"
-    )
-
-    print(
-        f"Removed interactions: "
-        f"{len(ratings) - len(ratings_filtered):,}"
-    )
-
-    return ratings_filtered
-
-
-# ---------------------------------------------------------------------------
-# Build Chronological User Sequences
-# ---------------------------------------------------------------------------
-
-def build_user_sequences(
-    ratings,
-    max_seq_len=MAX_SEQ_LEN,
-):
-    """
-    Generate chronological interaction sequences for each user.
-
-    Sequences are truncated to the most recent max_seq_len
-    interactions.
-
-    Users with fewer than three interactions are excluded
-    during the subsequent leave-last-two-out split.
-    """
-
-    print("\n=== Building User Sequences ===")
-
-    user_sequences = (
-        ratings.groupby(
-            "user_id",
-            sort=False,
-        )["item_id"]
-        .agg(list)
-        .reset_index(name="sequence")
-    )
-
-    user_sequences["sequence"] = (
-        user_sequences["sequence"].apply(
-            lambda sequence: sequence[-max_seq_len:]
-        )
-    )
-
-    sequence_lengths = (
-        user_sequences["sequence"].apply(len)
-    )
-
-    print(
-        f"Users before minimum sequence filtering: "
-        f"{len(user_sequences):,}"
-    )
-
-    print(
-        f"Maximum sequence length: {max_seq_len}"
-    )
-
-    print(
-        f"Average sequence length: "
-        f"{sequence_lengths.mean():.2f}"
-    )
-
-    print(
-        f"Median sequence length: "
-        f"{sequence_lengths.median():.2f}"
-    )
-
-    print(
-        f"Minimum sequence length: "
-        f"{sequence_lengths.min():,}"
-    )
-
-    print(
-        f"Maximum observed sequence length: "
-        f"{sequence_lengths.max():,}"
-    )
-
-    print("\nSequence Length Distribution:")
-
-    print(
-        sequence_lengths.describe(
-            percentiles=[
-                0.25,
-                0.50,
-                0.75,
-                0.90,
-                0.95,
-            ]
-        )
-    )
-
-    return user_sequences
-
-
-# ---------------------------------------------------------------------------
-# Leave-Last-Two-Out Split
-# ---------------------------------------------------------------------------
-
-def leave_last_two_out(user_sequences):
-    """
-    Split each user sequence chronologically.
-
-        train_sequence = all interactions except last two
-        validation_item = second-to-last interaction
-        test_item = last interaction
-
-    Users must have at least three interactions.
-    """
-
-    print("\n=== Creating Leave-Last-Two-Out Split ===")
-
-    split_data = []
-
-    for _, row in user_sequences.iterrows():
-
-        sequence = row["sequence"]
-
-        if len(sequence) < 3:
-            continue
-
-        split_data.append(
-            {
-                "user_id": row["user_id"],
-                "train_sequence": sequence[:-2],
-                "validation_item": sequence[-2],
-                "test_item": sequence[-1],
-            }
-        )
-
-    df_split = pd.DataFrame(
-        split_data,
-        columns=[
-            "user_id",
-            "train_sequence",
-            "validation_item",
-            "test_item",
-        ],
-    )
-
-    print(
-        f"Retained users with sequence length >= 3: "
-        f"{len(df_split):,}"
-    )
-
-    print(
-        f"Excluded users: "
-        f"{len(user_sequences) - len(df_split):,}"
-    )
-
-    return df_split
-
-
-# ---------------------------------------------------------------------------
-# Contiguous Product ID Mapping
-# ---------------------------------------------------------------------------
-
-def create_item_mapping(df_split):
-    """
-    Create contiguous product IDs.
-
-        PAD = 0
-        MASK = 1
-        Products start at ID = 2
-
-    Mapping is constructed from all retained train,
-    validation, and test interactions.
-
-    This ensures validation and test targets have valid IDs.
-    """
-
-    print("\n=== Creating Contiguous Product ID Mapping ===")
-
-    unique_items = sorted(
-        set(
-            item
-            for sequence in df_split["train_sequence"]
-            for item in sequence
-        )
-        | set(df_split["validation_item"])
-        | set(df_split["test_item"])
-    )
-
-    item_map = {
-        item: index + FIRST_ITEM_ID
-        for index, item in enumerate(unique_items)
-    }
-
-    item_mapping_df = pd.DataFrame(
+    return pd.DataFrame(
         {
-            "original_item_id": unique_items,
-            "item_id": [
-                item_map[item]
-                for item in unique_items
-            ],
+            "original_item_id": original_ids,
+            "item_id": [item_map[item] for item in original_ids],
         }
     )
 
-    print(
-        f"Unique products: {len(item_map):,}"
-    )
-
-    print(
-        f"PAD token: {PAD_TOKEN_ID}"
-    )
-
-    print(
-        f"MASK token: {MASK_TOKEN_ID}"
-    )
-
-    print(
-        f"First product ID: {FIRST_ITEM_ID}"
-    )
-
-    print(
-        f"Vocabulary size: "
-        f"{len(item_map) + FIRST_ITEM_ID:,}"
-    )
-
-    return item_map, item_mapping_df
-
-
-def apply_item_mapping(df_split, item_map):
-    """
-    Convert original ASINs into contiguous integer IDs.
-    """
-
-    print("\n=== Applying Product ID Mapping ===")
-
-    df_split = df_split.copy()
-
-    df_split["train_sequence"] = (
-        df_split["train_sequence"].apply(
-            lambda sequence: [
-                item_map[item]
-                for item in sequence
-            ]
-        )
-    )
-
-    df_split["validation_item"] = (
-        df_split["validation_item"].map(item_map)
-    )
-
-    df_split["test_item"] = (
-        df_split["test_item"].map(item_map)
-    )
-
-    return df_split
-
-
-# ---------------------------------------------------------------------------
-# Save Interim Dataset
-# ---------------------------------------------------------------------------
-
-def save_interim_dataset(
-    df_split,
-    item_mapping_df,
-    interim_dir,
-):
-    """
-    Save shared preprocessing artifacts.
-    """
-
-    print("\n=== Saving Interim Dataset ===")
-
-    interim_path = os.path.join(
-        interim_dir,
-        "amazon_beauty",
-    )
-
-    os.makedirs(
-        interim_path,
-        exist_ok=True,
-    )
-
-    df_split.to_parquet(
-        os.path.join(
-            interim_path,
-            "interim_sequences.parquet",
-        ),
-        index=False,
-    )
-
-    item_mapping_df.to_csv(
-        os.path.join(
-            interim_path,
-            "item_id_mapping.csv",
-        ),
-        index=False,
-    )
-
-    print(
-        f"Interim dataset saved to: {interim_path}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# BERT4Rec Dataset Generation
-# ---------------------------------------------------------------------------
-
-def generate_bert4rec_datasets(
-    df_split,
-    processed_dir,
-    max_seq_len=MAX_SEQ_LEN,
-):
-    """
-    Generate BERT4Rec-specific training, validation,
-    and test datasets.
-    """
-
-    print(
-        "\n=== Generating BERT4Rec-Specific Datasets ==="
-    )
-
-    # Training data.
-    bert_train = df_split[
-        [
-            "user_id",
-            "train_sequence",
-        ]
-    ].copy()
-
-    # Validation data.
-    bert_val = df_split[
-        [
-            "user_id",
-            "train_sequence",
-            "validation_item",
-        ]
-    ].copy()
-
-    # Test data includes the validation item as context.
-    bert_test = df_split[
-        [
-            "user_id",
-            "train_sequence",
-            "validation_item",
-            "test_item",
-        ]
-    ].copy()
-
-    bert_test["test_input"] = bert_test.apply(
-        lambda row: (
-            list(row["train_sequence"])
-            + [row["validation_item"]]
-        )[-max_seq_len:],
-        axis=1,
-    )
-
-    bert_test = bert_test[
-        [
-            "user_id",
-            "test_input",
-            "test_item",
-        ]
-    ]
-
-    bert_path = os.path.join(
-        processed_dir,
-        "amazon_beauty",
-        "bert4rec",
-    )
-
-    os.makedirs(
-        bert_path,
-        exist_ok=True,
-    )
-
-    bert_train.to_parquet(
-        os.path.join(
-            bert_path,
-            "train_sequences.parquet",
-        ),
-        index=False,
-    )
-
-    bert_val.to_parquet(
-        os.path.join(
-            bert_path,
-            "validation.parquet",
-        ),
-        index=False,
-    )
-
-    bert_test.to_parquet(
-        os.path.join(
-            bert_path,
-            "test.parquet",
-        ),
-        index=False,
-    )
-
-    print(
-        f"BERT4Rec training users: {len(bert_train):,}"
-    )
-
-    print(
-        f"BERT4Rec validation users: {len(bert_val):,}"
-    )
-
-    print(
-        f"BERT4Rec test users: {len(bert_test):,}"
-    )
-
-    print(
-        f"BERT4Rec dataset saved to: {bert_path}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# JEPA Dataset Generation
-# ---------------------------------------------------------------------------
-
-def generate_jepa_datasets(
-    df_split,
-    processed_dir,
-    max_seq_len=MAX_SEQ_LEN,
-):
-    """
-    Generate JEPA-specific context-target datasets.
-
-    Training pairs:
-
-        context_sequence = interactions before position i
-        target_item      = interaction at position i
-
-    Validation:
-        Predict the validation item using the complete
-        training sequence.
-
-    Test:
-        Predict the test item after observing the
-        validation item.
-    """
-
-    print(
-        "\n=== Generating JEPA-Specific Datasets ==="
-    )
-
-    jepa_train_data = []
-
-    for _, row in df_split.iterrows():
-
-        user_id = row["user_id"]
-        sequence = row["train_sequence"]
-
-        if len(sequence) < 2:
-            continue
-
-        for index in range(1, len(sequence)):
-
-            context = sequence[:index][-max_seq_len:]
-            target = sequence[index]
-
-            jepa_train_data.append(
-                {
-                    "user_id": user_id,
-                    "context_sequence": context,
-                    "target_item": target,
-                }
-            )
-
-    jepa_train = pd.DataFrame(
-        jepa_train_data,
-        columns=[
-            "user_id",
-            "context_sequence",
-            "target_item",
-        ],
-    )
-
-    # Validation.
-    jepa_val = df_split[
-        [
-            "user_id",
-            "train_sequence",
-            "validation_item",
-        ]
-    ].copy()
-
-    jepa_val.columns = [
-        "user_id",
-        "context_sequence",
-        "target_item",
-    ]
-
-    jepa_val["context_sequence"] = (
-        jepa_val["context_sequence"].apply(
-            lambda sequence: sequence[-max_seq_len:]
-        )
-    )
-
-    # Test.
-    jepa_test = df_split[
-        [
-            "user_id",
-            "train_sequence",
-            "validation_item",
-            "test_item",
-        ]
-    ].copy()
-
-    jepa_test["context_sequence"] = jepa_test.apply(
-        lambda row: (
-            list(row["train_sequence"])
-            + [row["validation_item"]]
-        )[-max_seq_len:],
-        axis=1,
-    )
-
-    jepa_test = jepa_test[
-        [
-            "user_id",
-            "context_sequence",
-            "test_item",
-        ]
-    ]
-
-    jepa_test.columns = [
-        "user_id",
-        "context_sequence",
-        "target_item",
-    ]
-
-    jepa_path = os.path.join(
-        processed_dir,
-        "amazon_beauty",
-        "jepa",
-    )
-
-    os.makedirs(
-        jepa_path,
-        exist_ok=True,
-    )
-
-    jepa_train.to_parquet(
-        os.path.join(
-            jepa_path,
-            "train_context_target.parquet",
-        ),
-        index=False,
-    )
-
-    jepa_val.to_parquet(
-        os.path.join(
-            jepa_path,
-            "validation.parquet",
-        ),
-        index=False,
-    )
-
-    jepa_test.to_parquet(
-        os.path.join(
-            jepa_path,
-            "test.parquet",
-        ),
-        index=False,
-    )
-
-    print(
-        f"JEPA training context-target pairs: "
-        f"{len(jepa_train):,}"
-    )
-
-    print(
-        f"JEPA validation users: {len(jepa_val):,}"
-    )
-
-    print(
-        f"JEPA test users: {len(jepa_test):,}"
-    )
-
-    print(
-        f"JEPA dataset saved to: {jepa_path}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Main Preprocessing Pipeline
-# ---------------------------------------------------------------------------
 
 def preprocess_pipeline(
-    raw_file=RAW_FILE,
-    interim_dir=INTERIM_DIR,
-    processed_dir=PROCESSED_DIR,
-    max_seq_len=MAX_SEQ_LEN,
-    min_item_interactions=MIN_ITEM_INTERACTIONS,
-):
-    """
-    Run the complete SNAP Amazon Beauty 5-core
-    preprocessing pipeline.
-    """
+    raw_file: Path = RAW_FILE,
+    interim_dir: Path = INTERIM_DATA_ROOT,
+    processed_dir: Path = PROCESSED_DATA_ROOT,
+    max_seq_len: int = MAX_SEQ_LEN,
+    min_item_interactions: int = MIN_ITEM_INTERACTIONS,
+) -> None:
+    """Run the complete Amazon Beauty preprocessing pipeline."""
 
-    print("=" * 72)
-    print(
-        "Stanford SNAP - Amazon Beauty 5-core Preprocessing"
-    )
-    print("=" * 72)
-
-    print(f"Raw data file: {raw_file}")
-    print(f"Interim data directory: {interim_dir}")
-    print(f"Processed data directory: {processed_dir}")
-
-    print(f"Maximum sequence length: {max_seq_len}")
-
-    print(
-        f"Minimum product interactions: "
-        f"{min_item_interactions}"
-    )
-
-    # ------------------------------------------------------------------
-    # Step 1: Load raw data.
-    # ------------------------------------------------------------------
-
-    print(
-        "\n=== Step 1: Loading Raw SNAP Amazon Beauty Dataset ==="
-    )
+    logger.info("Raw data file: %s", raw_file)
+    logger.info("Interim data directory: %s", interim_dir)
+    logger.info("Processed data directory: %s", processed_dir)
 
     ratings = load_amazon_beauty(raw_file)
+    ratings = sort_ratings_chronologically(ratings)
 
-    print(
-        f"Loaded {len(ratings):,} interactions."
-    )
-
-    # ------------------------------------------------------------------
-    # Step 2: Sort and filter.
-    # ------------------------------------------------------------------
-
-    print(
-        "\n=== Step 2: Sorting and Filtering Dataset ==="
-    )
-
-    ratings = sort_ratings_chronologically(
-        ratings
-    )
-
-    ratings_filtered = filter_rare_items(
+    df_split = preprocess_ratings(
         ratings,
-        min_item_interactions,
+        item_column="item_id",
+        max_seq_len=max_seq_len,
+        min_item_interactions=min_item_interactions,
     )
 
-    # ------------------------------------------------------------------
-    # Step 3: Build user sequences.
-    # ------------------------------------------------------------------
+    item_map = build_item_id_map(df_split)
+    item_mapping = build_item_mapping_table(item_map)
+    df_split = apply_item_id_map(df_split, item_map)
 
-    print(
-        "\n=== Step 3: Generating Chronological User "
-        "Sequences and Truncating ==="
-    )
-
-    user_sequences = build_user_sequences(
-        ratings_filtered,
-        max_seq_len,
-    )
-
-    # ------------------------------------------------------------------
-    # Step 4: Train / validation / test split.
-    # ------------------------------------------------------------------
-
-    print(
-        "\n=== Step 4: Creating Train/Validation/Test "
-        "Split (Leave-Last-Two-Out) ==="
-    )
-
-    df_split = leave_last_two_out(
-        user_sequences
-    )
-
-    if df_split.empty:
-        raise RuntimeError(
-            "No users remain after leave-last-two-out splitting."
-        )
-
-    # ------------------------------------------------------------------
-    # Step 5: Contiguous product ID mapping.
-    # ------------------------------------------------------------------
-
-    print(
-        "\n=== Step 5: Creating Contiguous Product ID Mapping ==="
-    )
-
-    item_map, item_mapping_df = create_item_mapping(
-        df_split
-    )
-
-    df_split = apply_item_mapping(
+    write_datasets(
         df_split,
-        item_map,
+        item_mapping,
+        dataset=DATASET,
+        mapping_filename="item_id_mapping.csv",
+        interim_root=interim_dir,
+        processed_root=processed_dir,
+        max_seq_len=max_seq_len,
     )
 
-    # ------------------------------------------------------------------
-    # Save shared intermediate artifacts.
-    # ------------------------------------------------------------------
-
-    save_interim_dataset(
-        df_split,
-        item_mapping_df,
-        interim_dir,
+    logger.info("Amazon Beauty preprocessing completed.")
+    logger.info(
+        "Users: %s | products: %s | mean training sequence length: %.2f",
+        f"{len(df_split):,}",
+        f"{len(item_map):,}",
+        df_split["train_sequence"].apply(len).mean(),
     )
 
-    # ------------------------------------------------------------------
-    # Step 6: BERT4Rec datasets.
-    # ------------------------------------------------------------------
 
-    generate_bert4rec_datasets(
-        df_split,
-        processed_dir,
-        max_seq_len,
-    )
-
-    # ------------------------------------------------------------------
-    # Step 7: JEPA datasets.
-    # ------------------------------------------------------------------
-
-    generate_jepa_datasets(
-        df_split,
-        processed_dir,
-        max_seq_len,
-    )
-
-    print("\n" + "=" * 72)
-    print(
-        "SNAP Amazon Beauty 5-core preprocessing completed successfully."
-    )
-    print("=" * 72)
-
-    print("\nFinal dataset statistics:")
-
-    print(
-        f"Users: {len(df_split):,}"
-    )
-
-    print(
-        f"Products: {len(item_map):,}"
-    )
-
-    print(
-        f"Vocabulary size: {len(item_map) + FIRST_ITEM_ID:,}"
-    )
-
-    print(
-        f"Average training sequence length: "
-        f"{df_split['train_sequence'].apply(len).mean():.2f}"
-    )
+def main() -> None:
+    setup_logging()
+    preprocess_pipeline()
 
 
 if __name__ == "__main__":
-    preprocess_pipeline()
+    main()

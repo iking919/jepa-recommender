@@ -1,3 +1,1 @@
-"""
-Data loading, preprocessing, splitting, and dataset utilities.
-"""
+"""Datasets, loaders, splits and preprocessing for sequential recommendation."""

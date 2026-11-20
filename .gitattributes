@@ -1,0 +1,11 @@
+# Normalise line endings: LF in the repository, regardless of platform.
+* text=auto eol=lf
+
+# Binary files.
+*.parquet binary
+*.pt binary
+*.pth binary
+*.ckpt binary
+*.safetensors binary
+*.png binary
+*.jpg binary

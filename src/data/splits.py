@@ -1,6 +1,4 @@
-"""
-Chronological train/validation/test splitting utilities.
-"""
+"""Chronological train/validation/test splitting."""
 
 from __future__ import annotations
 
@@ -8,13 +6,20 @@ import pandas as pd
 
 
 def leave_last_two_out(user_sequences: pd.DataFrame) -> pd.DataFrame:
-    """
-    Perform a chronological leave-last-two-out split.
+    """Split each user's chronological sequence, leaving the last two out.
 
-    For each user with at least three interactions:
-        train      = all interactions except the final two
-        validation = second-to-last interaction
-        test       = final interaction
+    Users with fewer than three interactions are dropped. For the rest:
+
+        train      = every interaction except the final two
+        validation = the second-to-last interaction
+        test       = the final interaction
+
+    Args:
+        user_sequences: Frame with ``user_id`` and ``sequence`` columns.
+
+    Returns:
+        Frame with ``user_id``, ``train_sequence``, ``validation_item`` and
+        ``test_item`` columns.
     """
 
     split_data = []
@@ -34,4 +39,7 @@ def leave_last_two_out(user_sequences: pd.DataFrame) -> pd.DataFrame:
             }
         )
 
-    return pd.DataFrame(split_data)
+    return pd.DataFrame(
+        split_data,
+        columns=["user_id", "train_sequence", "validation_item", "test_item"],
+    )

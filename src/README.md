@@ -1,65 +1,91 @@
 # Source Code
 
-This directory contains the reusable implementation of the sequential recommendation experiments.
-
-The code is organized into modular packages for data processing, model architectures, training, evaluation, and shared utilities.
-
-## Directory Structure
+Reusable implementation of the sequential recommendation experiments. The
+command-line entry points in [`scripts/`](../scripts/README.md) and the
+trainers below are thin layers over these packages.
 
 ```text
 src/
-├── data/
-├── models/
-├── training/
-├── evaluation/
-└── utils/
+├── data/          datasets, loaders, splits and preprocessing
+├── models/        BERT4Rec, JEPA and the shared Transformer encoder
+├── training/      training pipelines and shared training helpers
+├── evaluation/    ranking metrics, candidate filtering, evaluation
+└── utils/         configuration, paths, logging, checkpoints, seeding
 ```
 
-## Modules
+## `data/`
 
-### `data/`
+| Module | Purpose |
+|---|---|
+| `tokens.py` | Special token IDs (`PAD`, `MASK`, first item ID) |
+| `preprocessing.py` | Dataset-agnostic preprocessing steps shared by both datasets |
+| `splits.py` | Leave-last-two-out chronological split |
+| `datasets.py` | PyTorch datasets for BERT4Rec and JEPA |
+| `gpu_loader.py` | GPU-resident batch loaders for JEPA |
+| `sequence_windows.py` | Window construction for one-pass causal training |
+| `download.py` | HTTP download helpers used by the download scripts |
 
-Contains dataset loading, preprocessing, sequence construction, and dataset classes for BERT4Rec and JEPA.
+## `models/`
 
-### `models/`
+| Module | Purpose |
+|---|---|
+| `transformer.py` | Transformer encoder shared by the models |
+| `bert4rec.py` | BERT4Rec |
+| `jepa.py` | JEPA (context encoder, target encoder, predictor); causal or not |
+| `factory.py` | `build_bert4rec` / `build_jepa`: models from a config's `model` section |
 
-Contains the model architectures, including:
+## `training/`
 
-- BERT4Rec
-- JEPA
-- JEPA Causal
-- Shared Transformer components
-- JEPA prediction components
+| Module | Purpose |
+|---|---|
+| `train_bert4rec.py` | BERT4Rec trainer |
+| `train_jepa_causal.py` | Causal one-pass JEPA trainer (primary model) |
+| `train_jepa.py` | Standard JEPA trainer (one prefix per target) |
+| `common.py` | Device and GPU helpers, mixed precision, output paths, run-summary sections |
+| `ema.py` | Exponential moving average of the JEPA target encoder |
 
-### `training/`
+Every trainer exposes a function (`train_bert4rec`, `train`) and a command-line
+entry point.
 
-Contains model training pipelines and reusable training components, including the EMA update mechanism used by JEPA.
+## `evaluation/`
 
-### `evaluation/`
+| Module | Purpose |
+|---|---|
+| `metrics.py` | HR@k and NDCG@k |
+| `filtering.py` | Removes previously seen items from ranked candidates |
+| `recommendation.py` | Candidate embeddings and batched JEPA recommendation |
+| `evaluate.py` | `evaluate_jepa` and `evaluate_bert4rec` |
 
-Contains recommendation evaluation logic, ranking metrics, and recommendation utilities used to assess trained models.
+Both models share the same filtering protocol, so their metrics are directly
+comparable.
 
-### `utils/`
+## `utils/`
 
-Contains shared utilities for configuration loading, logging, checkpoint management, and reproducibility.
+| Module | Purpose |
+|---|---|
+| `config.py` | Layered config loading (`--config`, `--dataset`, `--set`, `--name`) |
+| `overrides.py` | Parsing of `--set` and `--name` |
+| `paths.py` | Single source of truth for data, results and checkpoint locations |
+| `checkpointing.py` | Saving and loading checkpoints |
+| `schedules.py` | Learning-rate schedule and model-selection helpers |
+| `serialization.py` | JSON helpers for the search and reporting scripts |
+| `reproducibility.py` | Random seeding |
+| `logging_utils.py` | Console logging setup |
 
-## Design Principles
+## Design principles
 
-The source code is organized to:
+- Model architecture is separate from training logic.
+- Experiment parameters live in YAML files, not in code.
+- Paths are built in one place (`utils/paths.py`).
+- Validation and held-out test evaluation are separate steps.
+- Checkpoints are kept apart from result artifacts.
 
-- Keep model architecture separate from training logic.
-- Reuse common components where appropriate.
-- Keep experiment-specific parameters in YAML configuration files.
-- Separate validation and held-out test evaluation.
-- Keep checkpoints separate from experiment result artifacts.
-
-## Running Training
+## Running a trainer
 
 From the repository root:
 
 ```bash
-python -m src.training.train_bert4rec --config configs/...
-python -m src.training.train_jepa --config configs/...
+python -m src.training.train_bert4rec     --config configs/ml-1m/bert4rec_tuned.yaml
+python -m src.training.train_jepa_causal  --config configs/ml-1m/jepa_causal_tuned.yaml
+python -m src.training.train_jepa         --config configs/ml-1m/jepa_tuned.yaml
 ```
-
-Use the corresponding tuned configuration files to run tuned experiments.

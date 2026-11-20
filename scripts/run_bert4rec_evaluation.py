@@ -1,5 +1,10 @@
-"""
-Evaluate a trained BERT4Rec checkpoint on the held-out test set.
+"""Evaluate a trained BERT4Rec checkpoint on the held-out test set.
+
+Usage (from the repository root):
+    python -m scripts.run_bert4rec_evaluation --config configs/ml-1m/bert4rec_tuned.yaml
+
+Reads the checkpoint saved by training (``--checkpoint`` overrides it) and
+writes ``test_results.json`` to the experiment's results folder.
 """
 
 from __future__ import annotations
@@ -9,13 +14,13 @@ import json
 from pathlib import Path
 
 import pandas as pd
-import torch
 
 from src.evaluation.evaluate import evaluate_bert4rec
-from src.models import BERT4Rec
+from src.models.factory import build_bert4rec
+from src.training.common import METRIC_NAMES, resolve_device
 from src.utils.checkpointing import load_checkpoint
 from src.utils.config import add_config_args, load_config_from_args
-from src.utils.logging import setup_logging
+from src.utils.logging_utils import setup_logging
 
 
 def main() -> None:
@@ -39,28 +44,11 @@ def main() -> None:
     data_config = config["data"]
     output_config = config["output"]
 
-    configured_device = config.get("device")
-    if configured_device == "cuda" and not torch.cuda.is_available():
-        raise RuntimeError("CUDA was requested but is not available.")
-
-    device = torch.device(
-        configured_device
-        if configured_device
-        else ("cuda" if torch.cuda.is_available() else "cpu")
-    )
+    device = resolve_device(config)
 
     test_df = pd.read_parquet(data_config["test_path"])
 
-    model = BERT4Rec(
-        vocab_size=model_config["vocab_size"],
-        max_seq_len=model_config["max_seq_len"],
-        hidden_dim=model_config["hidden_dim"],
-        num_layers=model_config["num_layers"],
-        num_heads=model_config["num_heads"],
-        feed_forward_dim=model_config["feed_forward_dim"],
-        dropout=model_config["dropout"],
-        pad_token_id=model_config["pad_token_id"],
-    ).to(device)
+    model = build_bert4rec(model_config).to(device)
 
     checkpoint_path = Path(
         args.checkpoint
@@ -86,7 +74,7 @@ def main() -> None:
 
     print("\nBERT4Rec Test Results")
     print("=" * 40)
-    for name in ("HR@5", "HR@10", "NDCG@5", "NDCG@10"):
+    for name in METRIC_NAMES:
         print(f"{name:<8} {metrics[name]:.4f}")
 
     results_dir = Path(output_config["results_dir"])
@@ -99,10 +87,7 @@ def main() -> None:
                 "model": "BERT4Rec",
                 "dataset": config["dataset"],
                 "checkpoint": str(checkpoint_path),
-                "metrics": {
-                    name: metrics[name]
-                    for name in ("HR@5", "HR@10", "NDCG@5", "NDCG@10")
-                },
+                "metrics": {name: metrics[name] for name in METRIC_NAMES},
             },
             indent=2,
         ),

@@ -1,72 +1,95 @@
 # Causal JEPA for Sequential Recommendation
 
-A research project investigating **Joint-Embedding Predictive Architectures (JEPA)** for sequential recommendation, with a focus on causal, one-pass training and its comparison against **BERT4Rec**.
+A research project investigating **Joint-Embedding Predictive Architectures
+(JEPA)** for sequential recommendation, with a focus on causal, one-pass
+training and its comparison against **BERT4Rec**.
 
-The project evaluates recommendation quality, training efficiency, and computational requirements across sequential recommendation datasets, including MovieLens-1M and Amazon Beauty.
+The project evaluates recommendation quality, training efficiency and
+computational requirements on MovieLens-1M and Amazon Beauty.
+
+## Contents
+
+- [Overview](#overview)
+- [Models](#models)
+- [Datasets](#datasets)
+- [Evaluation protocol](#evaluation-protocol)
+- [Repository structure](#repository-structure)
+- [Installation](#installation)
+- [Data preparation](#data-preparation)
+- [Experiment configuration](#experiment-configuration)
+- [Training](#training)
+- [Hyperparameter search](#hyperparameter-search)
+- [Cross-seed comparison](#cross-seed-comparison)
+- [Test-set evaluation](#test-set-evaluation)
+- [Results and experiment tracking](#results-and-experiment-tracking)
+- [Tests](#tests)
+- [Reproducibility](#reproducibility)
+- [Citation and acknowledgements](#citation-and-acknowledgements)
 
 ## Overview
 
-Sequential recommendation models learn from a user's interaction history to predict items they may interact with next.
+Sequential recommendation models learn from a user's interaction history to
+predict the items they will interact with next. This project investigates
+whether a causal JEPA can learn useful sequence representations by predicting
+the *embeddings* of future items, rather than their identities directly.
 
-This project investigates whether a causal JEPA framework can effectively learn sequential user representations by predicting future item representations in an embedding space, rather than directly predicting item identities during representation learning.
+The primary comparison is between:
 
-The primary comparison is between two approaches:
+- **BERT4Rec**, a bidirectional Transformer trained with masked item
+  prediction.
+- **Causal JEPA**, a causal Transformer that predicts future item
+  representations from encoded interaction contexts.
 
-- **BERT4Rec:** A bidirectional Transformer-based sequential recommendation model trained using masked item prediction.
-- **Causal JEPA:** A causal Joint-Embedding Predictive Architecture that predicts future item representations from encoded interaction contexts.
-
-A central research objective is to investigate whether causal, one-pass JEPA training can reduce redundant computation while maintaining competitive recommendation performance.
-
-### Research Objectives
+A central question is whether causal, one-pass JEPA training can remove
+redundant computation while keeping recommendation quality competitive.
 
 The project aims to:
 
 1. Implement a modular causal JEPA model for sequential recommendation.
-2. Establish BERT4Rec as a comparative sequential recommendation baseline.
-3. Compare recommendation performance under consistent dataset splits and evaluation protocols.
-4. Investigate the computational efficiency of causal JEPA training.
-5. Examine the effect of hyperparameter selection on recommendation quality and training efficiency.
-6. Compare training time, convergence behavior, parameter counts, and GPU memory usage.
-7. Evaluate model performance across different sequential recommendation datasets.
+2. Establish BERT4Rec as a comparative baseline.
+3. Compare both models under identical splits and evaluation protocols.
+4. Measure the computational efficiency of causal JEPA training.
+5. Examine the effect of hyperparameter selection on quality and efficiency.
+6. Compare training time, convergence, parameter counts and GPU memory.
+7. Repeat the comparison across datasets and random seeds.
 
 ## Models
 
 ### BERT4Rec
 
-BERT4Rec serves as the non-JEPA sequential recommendation baseline.
+The non-JEPA baseline. A bidirectional Transformer is trained to reconstruct
+masked items from the surrounding sequence. At evaluation time the final
+position is masked and the model ranks candidate items for it.
 
-It applies a bidirectional Transformer to user interaction sequences and learns through masked item prediction. During training, items are masked and the model learns to reconstruct their identities using surrounding sequence context.
-
-During evaluation, the model produces ranking scores for candidate items to predict a user's held-out interaction.
+Implementation: [`src/models/bert4rec.py`](src/models/bert4rec.py).
 
 ### Causal JEPA
 
-Causal JEPA is the primary research model.
+The primary research model. It consists of:
 
-Rather than directly predicting item identities, the model learns representations of user interaction histories and predicts future target representations in an embedding space.
+- **Context encoder:** encodes the interaction history with causal attention.
+- **Target encoder:** produces the target representations that serve as the
+  prediction objective.
+- **Predictor:** predicts target representations from context
+  representations.
+- **EMA update:** the target encoder tracks an exponential moving average of
+  the context encoder.
 
-The architecture consists of:
+Causal attention guarantees that a position only sees earlier interactions.
+This allows *one-pass* training: each user's history is cut into fixed-size
+windows, and every position of a window yields a prediction in a single
+forward pass, instead of re-encoding a separate prefix for every target.
 
-- **Context encoder:** Encodes a user's interaction history using causal attention.
-- **Target encoder:** Produces target representations used as the prediction objective during training.
-- **Predictor:** Predicts future target representations from encoded context representations.
-- **Exponential moving average (EMA):** Updates the target encoder using an exponential moving average of the context encoder's parameters.
-
-The causal attention mechanism ensures that representations only incorporate information available up to the corresponding position in the sequence.
-
-The training pipeline uses a one-pass windowing strategy to derive multiple prediction targets from sequence representations, reducing redundant forward passes compared with repeatedly encoding separate prefixes.
-
-The project investigates whether this approach provides a favorable balance between recommendation quality and computational efficiency.
+Implementation: [`src/models/jepa.py`](src/models/jepa.py) and
+[`src/data/sequence_windows.py`](src/data/sequence_windows.py). A standard
+(non-causal) JEPA, which encodes one prefix per target, is kept as an
+additional reference point.
 
 ## Datasets
 
-The project supports multiple sequential recommendation datasets.
-
 ### MovieLens-1M
 
-MovieLens-1M, published by the GroupLens Research Project at the University of Minnesota, contains timestamped user ratings.
-
-The original dataset contains:
+Published by the GroupLens Research Project at the University of Minnesota.
 
 | Statistic | Count |
 |---|---:|
@@ -74,511 +97,364 @@ The original dataset contains:
 | Users | 6,040 |
 | Movies | 3,706 |
 
-The project uses timestamps to construct chronological user interaction sequences.
-
 ### Amazon Beauty
 
-Amazon Beauty is derived from the Amazon Reviews dataset and contains user-product interaction histories.
-
-The project uses the Core 5 dataset, retaining products and users that satisfy the minimum interaction requirements of the preprocessing pipeline.
-
-The processed dataset contains a model vocabulary of 12,103 entries, including special tokens.
+The Stanford SNAP Amazon Beauty **5-core** subset (every user and item has at
+least five reviews). After preprocessing the model vocabulary has 12,103
+entries, including the special tokens.
 
 ### Preprocessing
 
-The preprocessing pipeline generally includes:
+Both datasets go through the same pipeline
+([`src/data/preprocessing.py`](src/data/preprocessing.py)):
 
-1. Loading the original interaction data.
-2. Sorting user interactions chronologically.
-3. Filtering users and items according to the dataset's minimum interaction requirements.
-4. Constructing user interaction sequences.
-5. Mapping item identifiers to contiguous model item IDs.
-6. Limiting sequence length to the configured maximum.
-7. Creating chronological training, validation, and test splits.
-8. Preparing model-specific training examples for BERT4Rec and causal JEPA.
+1. Load the interactions and sort them chronologically per user.
+2. Remove items with fewer than five interactions.
+3. Build one interaction sequence per user, keeping the most recent 200
+   interactions.
+4. Split chronologically, leaving the last two interactions out: the final
+   item is the test target, the one before it the validation target, and the
+   rest is training data. Users with fewer than three interactions are
+   dropped.
+5. Map item identifiers to contiguous model IDs.
+6. Write model-specific training files for BERT4Rec and JEPA.
 
-The default maximum sequence length is 200.
-
-Special token IDs are defined as follows:
+Special token IDs:
 
 | Token | ID |
 |---|---:|
 | Padding (`PAD`) | 0 |
 | Mask (`MASK`) | 1 |
-| Item IDs | 2 and above |
+| Items | 2 and above |
 
-BERT4Rec and causal JEPA use different training data formats, but their examples are derived from the same underlying chronological interaction data.
+The two models use different training file formats, but both are derived from
+the same chronological split. See [`data/README.md`](data/README.md) for the
+file layout.
 
-Refer to [`data/README.md`](data/README.md) for additional preprocessing details.
+## Evaluation protocol
 
-## Evaluation
-
-Models are evaluated on held-out interactions using ranking-based recommendation metrics.
+Models are evaluated on the held-out interaction of every user. All candidate
+items are ranked, items the user has already interacted with are removed from
+the ranking, and the position of the target item is scored.
 
 | Metric | Description |
 |---|---|
-| HR@5 | Whether the held-out target appears in the top 5 recommendations |
-| HR@10 | Whether the held-out target appears in the top 10 recommendations |
-| NDCG@5 | Ranking quality with logarithmic discounting at rank 5 |
-| NDCG@10 | Ranking quality with logarithmic discounting at rank 10 |
+| HR@5 | Whether the target appears in the top 5 recommendations |
+| HR@10 | Whether the target appears in the top 10 recommendations |
+| NDCG@5 | Rank-discounted gain, cut off at rank 5 |
+| NDCG@10 | Rank-discounted gain, cut off at rank 10 |
 
-The evaluation pipeline ranks candidate items and excludes previously interacted items where configured.
+Validation NDCG@10 drives checkpoint selection, early stopping and
+hyperparameter selection. The test set is only used for the final report.
 
-### Model Selection
+Besides quality, every run records training and validation time per epoch,
+parameter counts, peak GPU memory and convergence behaviour.
 
-Validation performance is used for hyperparameter selection and checkpoint selection.
-
-The held-out test set is reserved for final evaluation and should not influence model selection.
-
-### Computational Evaluation
-
-In addition to recommendation quality, the project records computational measurements such as:
-
-- Total training time.
-- Epoch duration.
-- Training throughput.
-- Number of model parameters.
-- Peak GPU memory usage.
-- Validation performance and convergence behavior.
-
-These measurements help evaluate whether causal JEPA offers computational advantages over BERT4Rec.
-
-## Repository Structure
+## Repository structure
 
 ```text
 jepa-recommender/
 ├── configs/
-│   ├── datasets/                  # Dataset-specific configuration
-│   ├── ml-1m/                     # MovieLens-1M experiments
-│   └── amazon_beauty/             # Amazon Beauty experiments
-├── data/
-│   ├── raw/                       # Original datasets
-│   ├── interim/                   # Intermediate preprocessing artifacts
-│   └── processed/                 # Model-ready datasets
-├── checkpoints/                   # Trained model weights
-├── results/                       # Experiment results and reports
-├── notebooks/                     # Exploratory analysis
-├── scripts/                       # Preprocessing, search, and evaluation
-└── src/
-    ├── data/                      # Dataset loading and preprocessing
-    ├── models/                    # Model architectures
-    ├── training/                  # Training pipelines and shared utilities
-    ├── evaluation/                # Evaluation metrics and logic
-    └── utils/                     # Configuration and utility functions
+│   ├── datasets/               # Per-dataset facts (vocabulary size, ...)
+│   ├── ml-1m/                  # MovieLens-1M experiments
+│   └── amazon_beauty/          # Amazon Beauty experiments
+├── data/                       # raw/, interim/ and processed/ datasets
+├── checkpoints/                # Trained model weights
+├── results/                    # Histories, summaries and search reports
+├── notebooks/                  # Exploratory analysis
+├── docs/                       # Written results summary
+├── scripts/                    # Command-line entry points
+│   ├── download_*.py           #   fetch raw datasets
+│   ├── preprocess_*.py         #   build model-ready datasets
+│   ├── run_*_evaluation.py     #   test-set evaluation
+│   ├── run_*_search.py         #   hyperparameter search
+│   ├── run_cross_seed_comparison.py
+│   └── summarize_runs.py       #   mean/std over groups of runs
+├── src/
+│   ├── data/                   # Datasets, loaders, splits, preprocessing
+│   ├── models/                 # BERT4Rec, JEPA and the shared Transformer
+│   ├── training/               # Training pipelines and shared helpers
+│   ├── evaluation/             # Metrics, candidate filtering, evaluation
+│   └── utils/                  # Config, paths, logging, checkpoints, seeding
+└── tests/                      # Unit tests
 ```
+
+Folders with generated or non-obvious content have their own README:
+[`src/`](src/README.md), [`scripts/`](scripts/README.md),
+[`configs/`](configs/README.md), [`data/`](data/README.md),
+[`results/`](results/README.md), [`checkpoints/`](checkpoints/README.md) and
+[`notebooks/`](notebooks/README.md).
 
 ## Installation
 
-### Requirements
-
-- Python 3.10 or later
-- PyTorch 2.2 or later
-- CUDA-compatible NVIDIA GPU recommended for training
-
-Create and activate a virtual environment:
+Requirements: Python 3.10 or later, PyTorch 2.2 or later, and (recommended for
+training) a CUDA-capable NVIDIA GPU.
 
 ```bash
 python -m venv .venv
-```
-
-Windows (Git Bash):
-
-```bash
-source .venv/Scripts/activate
-```
-
-Linux or macOS:
-
-```bash
-source .venv/bin/activate
-```
-
-Install dependencies:
-
-```bash
+source .venv/bin/activate          # Windows (Git Bash): source .venv/Scripts/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-The appropriate PyTorch installation depends on the operating system, GPU, and CUDA support. Follow the official [PyTorch installation instructions](https://pytorch.org/get-started/locally/) to install a compatible build.
-
-Verify the installation:
-
-```bash
-python -c "import torch; print(torch.__version__); print(torch.cuda.is_available())"
-```
-
-## Data Preparation
-
-Download the required dataset and place its original files in the corresponding directory under:
-
-```text
-data/raw/<dataset>/
-```
-
-For MovieLens-1M, the expected structure is:
-
-```text
-data/raw/ml-1m/
-├── README
-├── movies.dat
-├── ratings.dat
-└── users.dat
-```
-
-If the repository's download and preprocessing scripts are available, MovieLens-1M can be prepared using:
+The right PyTorch build depends on your operating system and CUDA version;
+follow the [official instructions](https://pytorch.org/get-started/locally/)
+if the default wheel does not suit your machine. Then verify the install:
 
 ```bash
-python scripts/download_ml1m.py
-python scripts/preprocess_ml1m.py
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 ```
 
-Refer to `data/README.md` and the available preprocessing scripts for the exact workflow for each dataset.
+Optional extras:
 
-Processed data is stored under:
+| File | Adds |
+|---|---|
+| `requirements-dev.txt` | `pytest`, for the test suite |
+| `requirements-notebooks.txt` | `matplotlib`, `seaborn`, Jupyter |
 
-```text
-data/processed/<dataset>/
-├── bert4rec/
-└── jepa/
+> **Running scripts.** Run everything from the repository root, and start
+> scripts as modules (`python -m scripts.<name>`). Running a file directly
+> (`python scripts/<name>.py`) does not put the repository on the import path.
+
+## Data preparation
+
+Download and preprocess a dataset with its two scripts:
+
+```bash
+# MovieLens-1M
+python -m scripts.download_ml1m
+python -m scripts.preprocess_ml1m
+
+# Amazon Beauty (SNAP 5-core)
+python -m scripts.download_amazon_beauty
+python -m scripts.preprocess_amazon_beauty
 ```
 
-The two model pipelines use separate training formats derived from the same underlying data splits.
+Downloads go to `data/raw/<dataset>/`. Preprocessing writes
+`data/interim/<dataset>/` and `data/processed/<dataset>/{bert4rec,jepa}/`.
+If a download is blocked on your network, place the original files in
+`data/raw/<dataset>/` by hand; the expected file names are listed in
+[`data/README.md`](data/README.md).
 
-## Experiment Configurations
+## Experiment configuration
 
-Experiment parameters are defined in YAML files under `configs/<dataset>/`.
-
-The primary configurations include:
+Experiments are YAML files under `configs/<dataset>/`:
 
 | Configuration | Description |
 |---|---|
-| `bert4rec_baseline.yaml` | Baseline BERT4Rec experiment |
-| `bert4rec_tuned.yaml` | Tuned BERT4Rec experiment |
-| `jepa_causal_baseline.yaml` | Baseline causal JEPA experiment |
-| `jepa_causal_tuned.yaml` | Tuned causal JEPA experiment |
+| `bert4rec_baseline.yaml` | Baseline BERT4Rec |
+| `bert4rec_tuned.yaml` | BERT4Rec with tuned hyperparameters |
+| `jepa_causal_baseline.yaml` | Baseline causal JEPA |
+| `jepa_causal_tuned.yaml` | Causal JEPA with tuned hyperparameters |
+| `jepa_baseline.yaml`, `jepa_tuned.yaml` | Standard (non-causal) JEPA, MovieLens-1M only |
+| `*_search.yaml` | Starting points for hyperparameter search (Amazon Beauty) |
 
-Additional search configurations may be provided for hyperparameter optimization.
-
-### Dataset Configuration
-
-Dataset-specific facts, including vocabulary size and maximum sequence length, are stored in:
-
-```text
-configs/datasets/<dataset>.yaml
-```
-
-For example:
-
-```text
-configs/datasets/amazon_beauty.yaml
-configs/datasets/ml-1m.yaml
-```
-
-The configuration loader combines the experiment configuration with the selected dataset configuration.
-
-A dataset can be inferred from the experiment configuration's directory, or explicitly selected using `--dataset`.
-
-For example:
+Dataset facts (vocabulary size, maximum sequence length) live in
+`configs/datasets/<dataset>.yaml` and take precedence over the experiment
+file. The dataset is taken from the folder the experiment YAML sits in, or
+chosen explicitly with `--dataset`, so one experiment file can be reused:
 
 ```bash
-# Run on MovieLens-1M
+# MovieLens-1M (inferred from the folder)
 python -m src.training.train_jepa_causal \
   --config configs/ml-1m/jepa_causal_tuned.yaml
 
-# Run the same configuration on Amazon Beauty
+# The same configuration on Amazon Beauty
 python -m src.training.train_jepa_causal \
   --config configs/ml-1m/jepa_causal_tuned.yaml \
   --dataset amazon_beauty
 ```
 
-Data paths use the `{dataset}` placeholder:
+Paths in a config use the `{dataset}` placeholder, which the loader expands
+and validates:
 
 ```yaml
 data:
   train_path: "data/processed/{dataset}/jepa/train_context_target.parquet"
-  validation_path: "data/processed/{dataset}/jepa/validation.parquet"
-  test_path: "data/processed/{dataset}/jepa/test.parquet"
 ```
 
-The configuration loader expands these paths and checks that they belong to the selected dataset.
+Command-line options shared by the trainers and evaluation scripts:
 
-### Output Organization
+| Option | Effect |
+|---|---|
+| `--config PATH` | Experiment YAML |
+| `--dataset NAME` | Dataset to run on |
+| `--name NAME` | Rename the experiment; all output paths follow |
+| `--set key=value` | Override one value, e.g. `--set training.learning_rate=1e-3` |
 
-Experiment outputs are separated by dataset and experiment name.
+### Output organisation
 
 ```text
-results/
-└── <dataset>/
-    └── <experiment>/
-        ├── config.yaml
-        ├── training_history.csv
-        ├── run_summary.json
-        └── test_results.json
+results/<dataset>/<experiment>/
+├── config.yaml              # fully resolved configuration
+├── training_history.csv     # one row per epoch
+├── run_summary.json         # metrics, timing, hardware, files
+└── test_results.json        # written by the evaluation scripts
 
-checkpoints/
-└── <dataset>/
-    └── <experiment>/
-        └── <experiment>_best.pt
+checkpoints/<dataset>/<experiment>/<experiment>_best.pt
 ```
 
-The resolved configuration is saved alongside the experiment results.
-
-Use `--name` to assign a different experiment name without modifying the YAML file.
-
-Use `--set` to override individual configuration values.
-
-For example:
-
-```bash
-python -m src.training.train_jepa_causal \
-  --config configs/amazon_beauty/jepa_causal_tuned.yaml \
-  --name jepa_causal_comparison
-```
-
-This creates a separate experiment directory:
-
-```text
-results/amazon_beauty/jepa_causal_comparison/
-checkpoints/amazon_beauty/jepa_causal_comparison/
-```
-
-This is useful for preserving previous experiments while running updated comparisons.
+`--name` writes a run to a separate folder, which preserves earlier
+experiments while an updated comparison runs.
 
 ## Training
 
-Run commands from the repository root.
-
-### BERT4Rec
-
-Baseline:
+Run from the repository root. Every trainer saves the best checkpoint (by
+validation NDCG@10), the epoch history, the run summary and the resolved
+configuration.
 
 ```bash
-python -m src.training.train_bert4rec \
-  --config configs/amazon_beauty/bert4rec_baseline.yaml
-```
-
-Tuned:
-
-```bash
+# BERT4Rec
 python -m src.training.train_bert4rec \
   --config configs/amazon_beauty/bert4rec_tuned.yaml
-```
 
-### Causal JEPA
-
-Baseline:
-
-```bash
-python -m src.training.train_jepa_causal \
-  --config configs/amazon_beauty/jepa_causal_baseline.yaml
-```
-
-Tuned:
-
-```bash
+# Causal JEPA
 python -m src.training.train_jepa_causal \
   --config configs/amazon_beauty/jepa_causal_tuned.yaml
+
+# Standard (non-causal) JEPA
+python -m src.training.train_jepa \
+  --config configs/ml-1m/jepa_tuned.yaml
 ```
 
-Training saves the best checkpoint, training history, run summary, and resolved configuration in their respective output directories.
+Checkpoint saving can be disabled with `--set training.save_checkpoint=false`.
 
-## Hyperparameter Search
+## Hyperparameter search
 
-Hyperparameter search investigates optimization settings for BERT4Rec and causal JEPA.
+Both searches evaluate a grid of configurations on the validation set and
+write aggregate reports to `results/<dataset>/<model>_grid_search/`
+(`bert4rec_grid_search`, `jepa_grid_search`):
 
-The search process evaluates candidate configurations using validation performance and records the results for analysis.
-
-Example BERT4Rec search:
+```text
+search_summary.csv        # one row per trial
+config_summary.csv        # trials aggregated by configuration
+grid_search_report.json   # machine-readable report, used for resuming
+```
 
 ```bash
 python -m scripts.run_bert4rec_hyperparameter_search \
   --config configs/ml-1m/bert4rec_tuned.yaml \
   --dataset amazon_beauty
-```
 
-Example causal JEPA search:
-
-```bash
 python -m scripts.run_jepa_hyperparameter_search \
   --config configs/ml-1m/jepa_causal_tuned.yaml \
   --dataset amazon_beauty \
   --allow-existing
 ```
 
-Search reports are stored separately from ordinary training results.
+Searches never write into a real experiment folder. The JEPA search keeps
+per-trial files in a reused `_scratch/` folder inside the search directory;
+the BERT4Rec search keeps no per-trial files at all. Interrupted searches
+resume from their JSON report (`--restart` or `--no-resume`, depending on the
+script, starts over).
 
-Typical outputs include:
+Selected hyperparameters are copied into the tuned YAML files by hand. The
+baseline files stay unchanged so the initial setup is preserved, and test
+metrics are only computed once selection is finished.
 
-```text
-results/<dataset>/<model>_grid_search/
-├── search_summary.csv
-├── config_summary.csv
-├── grid_search_report.json
-└── _scratch/
-```
+## Cross-seed comparison
 
-The search summary contains trial-level results, while the JSON report contains machine-readable experiment metadata.
-
-The `_scratch/` directory is used for temporary trial artifacts and should not be confused with final experiment outputs.
-
-### Selecting Tuned Configurations
-
-Validation performance, particularly NDCG@10, is used to select promising configurations.
-
-Selected hyperparameters are recorded in the corresponding tuned YAML configuration.
-
-The original baseline configuration should remain unchanged to preserve the initial experimental setup.
-
-Final test metrics should only be calculated after hyperparameter selection is complete.
-
-## Cross-Seed Comparison
-
-Cross-seed experiments investigate the stability of model performance under different random seeds while keeping the remaining configuration fixed.
-
-The repository includes:
-
-```text
-scripts/run_cross_seed_comparison.py
-```
-
-Example causal JEPA experiment:
+Repeat a configuration across random seeds to judge run-to-run noise:
 
 ```bash
 python -m scripts.run_cross_seed_comparison \
   --config configs/ml-1m/jepa_causal_tuned.yaml \
   --dataset amazon_beauty \
   --allow-existing
-```
 
-Example BERT4Rec experiment:
-
-```bash
 python -m scripts.run_cross_seed_comparison \
   --config configs/ml-1m/bert4rec_tuned.yaml \
   --dataset amazon_beauty \
   --allow-existing
 ```
 
-Typical reports include:
+Reports go to `results/<dataset>/<model>_seed_search/` (`bert4rec_seed_search`,
+`jepa_seed_search`):
 
-- `seed_results.csv`: Individual run results, including metrics, best epoch, and training time.
-- `seed_summary.csv`: Aggregate statistics across successful seeds.
-- `cross_seed_report.json`: Experiment metadata, individual results, and run status.
+| File | Content |
+|---|---|
+| `seed_results.csv` | One row per seed: metrics, best epoch, training time |
+| `metric_summary.csv` | Mean and spread across successful seeds |
+| `cross_seed_report.json` | Metadata, per-seed results and run status |
 
-The default seed set is:
+The default seeds are `42, 123, 456, 789, 2026`; use `--seeds` to change them.
+Cross-seed comparisons use validation metrics. To compare groups of finished
+runs, including test metrics, use
+[`scripts/summarize_runs.py`](scripts/summarize_runs.py).
 
-```text
-42, 123, 456, 789, 2026
-```
+## Test-set evaluation
 
-Use `--seeds` to specify a different set.
-
-Cross-seed comparisons use validation performance for model selection. Test performance should be reported separately.
-
-## Evaluation
-
-Evaluation uses a trained checkpoint and its corresponding experiment configuration.
-
-For example:
+Evaluate a trained checkpoint on the held-out test set:
 
 ```bash
-# BERT4Rec
 python -m scripts.run_bert4rec_evaluation \
   --config configs/amazon_beauty/bert4rec_tuned.yaml
 
-# Causal JEPA
 python -m scripts.run_jepa_evaluation \
   --config configs/amazon_beauty/jepa_causal_tuned.yaml
 ```
 
-The evaluation scripts support the configuration options used during training. An explicit checkpoint can also be supplied using `--checkpoint`.
+The checkpoint defaults to the one the same configuration produced during
+training; pass `--checkpoint PATH` to use another. Metrics are written to
+`results/<dataset>/<experiment>/test_results.json`.
 
-Test metrics are written to:
-
-```text
-results/<dataset>/<experiment>/test_results.json
-```
-
-## Results and Experiment Tracking
-
-Each experiment has a dedicated results directory.
-
-For example:
+## Results and experiment tracking
 
 ```text
 results/
 ├── ml-1m/
-│   ├── bert4rec_baseline/
-│   ├── bert4rec_tuned/
-│   ├── jepa_causal_baseline/
-│   ├── jepa_causal_tuned/
-│   ├── bert4rec_grid_search/
-│   └── jepa_causal_grid_search/
+│   ├── bert4rec_baseline/        bert4rec_tuned/
+│   ├── jepa_baseline/            jepa_tuned/
+│   ├── jepa_causal_baseline/     jepa_causal_tuned/
+│   ├── bert4rec_grid_search/     jepa_grid_search/
+│   └── bert4rec_seed_search/     jepa_seed_search/
 └── amazon_beauty/
-    ├── bert4rec_baseline/
-    ├── bert4rec_tuned/
-    ├── jepa_causal_baseline/
-    ├── jepa_causal_tuned/
-    ├── bert4rec_comparison/
-    └── jepa_causal_comparison/
+    ├── bert4rec_baseline/        bert4rec_tuned/
+    ├── jepa_causal_baseline/     jepa_causal_tuned/
+    ├── bert4rec_grid_search/     jepa_grid_search/
+    └── bert4rec_seed_search/     jepa_seed_search/
 ```
 
-Depending on the experiment pipeline, results may include:
+A written summary of the findings is in
+[`docs/results_summary.md`](docs/results_summary.md). See
+[`results/README.md`](results/README.md) and
+[`checkpoints/README.md`](checkpoints/README.md) for the file formats.
 
-| File | Description |
-|---|---|
-| `config.yaml` | Fully resolved experiment configuration |
-| `training_history.csv` | Epoch-level training and validation history |
-| `run_summary.json` | Run-level metrics and experiment metadata |
-| `test_results.json` | Final held-out test metrics |
+## Tests
 
-Model checkpoints are stored separately under `checkpoints/`.
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
 
-See `results/README.md` and `checkpoints/README.md` for additional details.
+The tests cover configuration loading and overrides, learning-rate schedules,
+window construction and the shared preprocessing steps. They need neither a
+GPU nor any dataset.
 
 ## Reproducibility
 
-The project uses configuration files and shared utility functions to support consistent experiment execution and random seeding.
+- Seeds are set for Python, NumPy and PyTorch, and cuDNN runs in
+  deterministic mode.
+- Every run stores its fully resolved configuration next to its results.
+- Splits are chronological and shared between both models.
+- Models are selected on validation data only; the test set is evaluated once
+  per final configuration.
+- Use several seeds to judge stability (see
+  [Cross-seed comparison](#cross-seed-comparison)).
 
-For reproducible experiments:
+Exact numbers can still vary with hardware, library versions and
+non-deterministic GPU operations.
 
-1. Use consistent dataset preprocessing and chronological splits.
-2. Preserve the configuration used for each experiment.
-3. Record hardware and software environment details.
-4. Retain training histories and hyperparameter search reports.
-5. Select models using validation performance.
-6. Evaluate final performance on the held-out test set.
-7. Use multiple random seeds when assessing experimental stability.
-8. Document any differences in model architecture or training procedure.
-
-Exact results may vary due to hardware, software versions, nondeterministic GPU operations, and training conditions.
-
-## Research Status
-
-The current research focuses on comparing BERT4Rec and causal JEPA for sequential recommendation.
-
-The primary experimental questions are:
-
-- Can causal JEPA achieve competitive recommendation performance relative to BERT4Rec?
-- Does one-pass causal training reduce training time or computational requirements?
-- How do the approaches differ in convergence behavior and resource usage?
-- Are observed performance differences consistent across datasets and random seeds?
-
-Updated comparisons are being conducted on Amazon Beauty using the modularized training pipelines. Final conclusions will be based on validated held-out test results and computational measurements.
-
-## Citation
+## Citation and acknowledgements
 
 If you use MovieLens-1M, cite:
 
-> F. Maxwell Harper and Joseph A. Konstan. 2015. The MovieLens Datasets: History and Context. *ACM Transactions on Interactive Intelligent Systems*, 5(4), Article 19. https://doi.org/10.1145/2827872
+> F. Maxwell Harper and Joseph A. Konstan. 2015. The MovieLens Datasets:
+> History and Context. *ACM Transactions on Interactive Intelligent Systems*,
+> 5(4), Article 19. https://doi.org/10.1145/2827872
 
-Please follow the MovieLens dataset usage terms. The dataset must not be redistributed without permission.
-
-## Acknowledgements
-
-MovieLens-1M is provided by the GroupLens Research Project at the University of Minnesota.
-
-The Amazon Reviews dataset is used as an additional source of sequential interaction data.
-
-These datasets are used for academic research and their inclusion does not imply endorsement by their respective providers.
+MovieLens-1M is provided by the GroupLens Research Project at the University
+of Minnesota and must not be redistributed without permission. The Amazon
+Beauty data come from the Stanford SNAP Amazon product reviews collection.
+Both datasets are used for academic research; their inclusion does not imply
+endorsement by the providers.

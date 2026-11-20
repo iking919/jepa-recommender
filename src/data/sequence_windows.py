@@ -1,15 +1,14 @@
-"""
-Window construction for one-pass (causal) JEPA training.
+"""Window construction for one-pass (causal) JEPA training.
 
-The existing JEPA training file holds one (context, target) pair per
-interaction, so each user's history is re-encoded once per target. Here the
-same data is rebuilt into whole sequences and cut into fixed-size windows.
-A causal encoder then produces the prediction for *every* position in a
-single forward pass.
+The preprocessed JEPA training file holds one (context, target) pair per
+interaction, so a standard JEPA epoch re-encodes each user's history once
+per target. Here the pairs are rebuilt into whole sequences and cut into
+fixed-size windows, so a causal encoder can produce a prediction for
+*every* position in a single forward pass.
 
-Every target in the original pair file is supervised exactly once.
+Every target in the pair file is supervised exactly once.
 
-This module uses only numpy/pandas so it can be tested without PyTorch.
+This module uses only NumPy and pandas, so it can be tested without PyTorch.
 """
 
 from __future__ import annotations

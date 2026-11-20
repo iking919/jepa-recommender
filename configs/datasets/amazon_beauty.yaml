@@ -3,7 +3,7 @@
 # (see data/interim/amazon_beauty/item_id_mapping.csv).
 # max_seq_len matches MAX_SEQ_LEN in scripts/preprocess_amazon_beauty.py.
 name: amazon_beauty
-description: Amazon Reviews 2023 All Beauty, leave-last-two-out split
+description: Amazon Reviews SNAP 5-core dataset for Beauty category.
 
 model:
   vocab_size: 12103

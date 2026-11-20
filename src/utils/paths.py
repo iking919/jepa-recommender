@@ -1,12 +1,14 @@
-"""
-Single source of truth for where every artifact lives.
+"""Single source of truth for where every artifact lives.
 
 Layout (``<dataset>`` is e.g. ``ml-1m`` or ``amazon_beauty``; it matches the
 folder names under ``data/raw``, ``data/interim`` and ``data/processed``)::
 
-    configs/datasets/<dataset>.yaml                   dataset facts
-    results/<dataset>/<experiment>/                   history, summary, config, test metrics
-    results/<dataset>/<search_name>/                  grid-search / seed-search reports
+    data/{raw,interim,processed}/<dataset>/         dataset files
+    configs/datasets/<dataset>.yaml                 dataset facts
+    results/<dataset>/<experiment>/                 history, summary, config,
+                                                    test metrics
+    results/<dataset>/<search_name>/                grid-search and
+                                                    seed-search reports
     checkpoints/<dataset>/<experiment>/<experiment>_best.pt
 
 No other module should build these paths by hand; call the helpers below.
@@ -20,6 +22,11 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 DATASET_CONFIG_DIR = PROJECT_ROOT / "configs" / "datasets"
+
+# Dataset folders. Each holds one sub-folder per dataset (``ml-1m``, ...).
+RAW_DATA_ROOT = PROJECT_ROOT / "data" / "raw"
+INTERIM_DATA_ROOT = PROJECT_ROOT / "data" / "interim"
+PROCESSED_DATA_ROOT = PROJECT_ROOT / "data" / "processed"
 
 RESULTS_ROOT = Path("results")
 CHECKPOINTS_ROOT = Path("checkpoints")
@@ -76,22 +83,30 @@ def dataset_config_path(dataset: str) -> Path:
 # ---------------------------------------------------------------------
 
 def results_dir(dataset: str, experiment: str) -> Path:
+    """Folder for one experiment's history, summary and test metrics."""
+
     return RESULTS_ROOT / validate_name(dataset, "dataset") / validate_name(
         experiment, "experiment name"
     )
 
 
 def checkpoint_dir(dataset: str, experiment: str) -> Path:
+    """Folder for one experiment's checkpoints."""
+
     return CHECKPOINTS_ROOT / validate_name(dataset, "dataset") / validate_name(
         experiment, "experiment name"
     )
 
 
 def best_checkpoint_name(experiment: str) -> str:
+    """File name of an experiment's best-validation checkpoint."""
+
     return f"{validate_name(experiment, 'experiment name')}_best.pt"
 
 
 def best_checkpoint_path(dataset: str, experiment: str) -> Path:
+    """Full path of an experiment's best-validation checkpoint."""
+
     return checkpoint_dir(dataset, experiment) / best_checkpoint_name(experiment)
 
 
@@ -104,6 +119,8 @@ def search_dir(dataset: str, search_name: str) -> Path:
 
 
 def scratch_dir(parent: str | Path) -> Path:
+    """Throwaway folder inside a search directory for per-trial files."""
+
     return Path(parent) / SCRATCH_NAME
 
 

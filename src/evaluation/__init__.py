@@ -1,11 +1,6 @@
-"""
-Evaluation and recommendation utilities for the JEPA Recommender project.
-"""
+"""Ranking metrics and evaluation routines."""
 
-from .metrics import (
-    hit_rate_at_k,
-    ndcg_at_k,
-)
+from src.evaluation.metrics import hit_rate_at_k, ndcg_at_k
 
 __all__ = [
     "hit_rate_at_k",

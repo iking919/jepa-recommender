@@ -1,13 +1,14 @@
-"""
-GPU-resident batch loader for JEPA context-target pairs.
+"""GPU-resident batch loaders for JEPA training and evaluation.
 
-The JEPA training pairs are already fixed-size tensors, so the usual
-``DataLoader`` path (per-sample ``__getitem__`` + Python collate) is pure
-overhead. This loader keeps the whole dataset on the target device and
-builds each batch with a single index_select.
+The JEPA data are fixed-size tensors, so the usual ``DataLoader`` path
+(per-sample ``__getitem__`` plus a Python collate) is pure overhead. These
+loaders keep the whole dataset on the target device and build each batch
+with a single ``index_select``.
 
-It yields the same ``{"context", "actual_len", "target"}`` dicts as
-``DataLoader(JEPADataset(...))``, so ``evaluate_jepa`` works unchanged.
+* ``GPUBatchLoader`` serves ``JEPADataset`` context-target pairs and yields
+  the same ``{"context", "actual_len", "target"}`` dicts as
+  ``DataLoader(JEPADataset(...))``, so ``evaluate_jepa`` works with either.
+* ``GPUWindowLoader`` serves the windows used for causal one-pass training.
 """
 
 from __future__ import annotations

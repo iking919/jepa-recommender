@@ -1,6 +1,4 @@
-"""
-Reproducibility utilities for model training.
-"""
+"""Random-number seeding for reproducible training runs."""
 
 from __future__ import annotations
 
@@ -11,7 +9,7 @@ import torch
 
 
 def set_seed(seed: int) -> None:
-    """Set Python, NumPy, and PyTorch random seeds."""
+    """Seed Python, NumPy and PyTorch, and make cuDNN deterministic."""
 
     random.seed(seed)
     np.random.seed(seed)
