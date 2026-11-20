@@ -1,9 +1,7 @@
-"""
-PyTorch datasets for sequential recommendation.
+"""PyTorch datasets for sequential recommendation.
 
-This module provides the model-specific dataset wrappers used by both
-BERT4Rec and JEPA. Preprocessing remains separate so that the training
-pipeline consumes already prepared data.
+Model-specific dataset wrappers for BERT4Rec and JEPA. They consume data
+that ``src.data.preprocessing`` has already prepared.
 """
 
 from __future__ import annotations
@@ -13,6 +11,8 @@ from typing import Sequence
 import torch
 from torch.utils.data import Dataset
 
+from src.data.tokens import MASK_TOKEN_ID, PAD_TOKEN_ID
+
 
 class BERT4RecDataset(Dataset):
     """Dataset for masked-item training with BERT4Rec."""
@@ -21,9 +21,9 @@ class BERT4RecDataset(Dataset):
         self,
         sequences: Sequence,
         max_seq_len: int = 200,
-        mask_token: int = 1,
+        mask_token: int = MASK_TOKEN_ID,
         mask_probability: float = 0.15,
-        pad_token: int = 0,
+        pad_token: int = PAD_TOKEN_ID,
     ) -> None:
         self.sequences = sequences
         self.max_seq_len = max_seq_len
@@ -75,7 +75,7 @@ class JEPADataset(Dataset):
         contexts: Sequence,
         targets: Sequence,
         max_seq_len: int = 200,
-        pad_token: int = 0,
+        pad_token: int = PAD_TOKEN_ID,
     ) -> None:
         if len(contexts) != len(targets):
             raise ValueError(

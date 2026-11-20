@@ -13,33 +13,33 @@ Checkpoints are not saved unless --save-checkpoints is given (then they go to
 ``_scratch/checkpoints`` and are overwritten by each trial).
 
 Resume is supported from the aggregate grid_search_report.json report.
+
+Usage (from the repository root):
+    python -m scripts.run_jepa_hyperparameter_search \
+        --config configs/ml-1m/jepa_causal_tuned.yaml
 """
+
 from __future__ import annotations
 
 import argparse
 import copy
-import gc
 import itertools
 import json
 import logging
-import math
 import statistics
-import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-import yaml
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+from src.training.common import release_gpu_memory
+from src.utils.config import load_config
+from src.utils.logging_utils import setup_logging
+from src.utils.paths import PROJECT_ROOT, scratch_dir, search_dir
+from src.utils.serialization import finite_number, json_safe, write_json
 
-from src.utils.config import load_config  # noqa: E402
-from src.utils.paths import scratch_dir, search_dir  # noqa: E402
-
-LOGGER = logging.getLogger("jepa_hyperparameter_search")
+logger = logging.getLogger("jepa_hyperparameter_search")
 
 SEARCH_SPACE: dict[str, list[Any]] = {
     "lr_schedule": ["constant"],
@@ -74,48 +74,6 @@ CONFIG_PATHS: dict[str, tuple[str, ...] | None] = {
 }
 
 PARAM_KEYS = tuple(SEARCH_SPACE.keys())
-
-
-def configure_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(message)s",
-        handlers=[logging.StreamHandler(sys.stdout)],
-        force=True,
-    )
-
-
-def finite_number(value: Any) -> bool:
-    try:
-        return math.isfinite(float(value))
-    except (TypeError, ValueError, OverflowError):
-        return False
-
-
-def json_safe(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {str(k): json_safe(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [json_safe(v) for v in value]
-    if value is None or isinstance(value, (str, bool, int)):
-        return value
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, Path):
-        return str(value)
-    if hasattr(value, "item"):
-        try:
-            return json_safe(value.item())
-        except (TypeError, ValueError):
-            pass
-    return str(value)
-
-
-def write_json(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(json_safe(data), f, indent=2, allow_nan=False)
-        f.write("\n")
 
 
 def apply_nested(config: dict[str, Any], path: tuple[str, ...], value: Any) -> None:
@@ -267,16 +225,6 @@ def save_report(
     write_json(out_dir / "grid_search_report.json", report)
 
 
-def release_gpu_memory() -> None:
-    gc.collect()
-    try:
-        import torch
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-    except ImportError:
-        pass
-
-
 def run(args: argparse.Namespace) -> int:
     config_path = args.config.expanduser().resolve()
     if not config_path.is_file():
@@ -328,10 +276,10 @@ def run(args: argparse.Namespace) -> int:
     ]
     plan = [(params, seed) for params in params_list for seed in seeds]
 
-    LOGGER.info("Config: %s", config_path)
-    LOGGER.info("Dataset: %s", dataset)
-    LOGGER.info("Output: %s", out_dir)
-    LOGGER.info(
+    logger.info("Config: %s", config_path)
+    logger.info("Dataset: %s", dataset)
+    logger.info("Output: %s", out_dir)
+    logger.info(
         "Configurations=%d | seeds=%s | total trials=%d",
         len(params_list), seeds, len(plan)
     )
@@ -372,9 +320,9 @@ def run(args: argparse.Namespace) -> int:
                 ]
             if previous.get("started_at"):
                 started = previous["started_at"]
-            LOGGER.info("Loaded %d successful trial records for resume.", len(trials))
+            logger.info("Loaded %d successful trial records for resume.", len(trials))
         except (OSError, ValueError, TypeError) as exc:
-            LOGGER.warning("Could not resume from report: %s", exc)
+            logger.warning("Could not resume from report: %s", exc)
 
     completed_keys = {
         (tuple(t.get(k) for k in space), t.get("seed"))
@@ -389,7 +337,7 @@ def run(args: argparse.Namespace) -> int:
         name = trial_name(params, seed)
 
         if not args.no_resume and key in completed_keys:
-            LOGGER.info("[%d/%d] Skipping completed trial %s", i, len(plan), name)
+            logger.info("[%d/%d] Skipping completed trial %s", i, len(plan), name)
             continue
 
         record: dict[str, Any] = {
@@ -409,7 +357,7 @@ def run(args: argparse.Namespace) -> int:
             )
 
             # Trainer artifacts go to <out_dir>/_scratch (reused per trial).
-            LOGGER.info("[%d/%d] Training %s", i, len(plan), name)
+            logger.info("[%d/%d] Training %s", i, len(plan), name)
             summary = train(trial_config)
             metrics, score = metric_summary(summary)
 
@@ -429,7 +377,7 @@ def run(args: argparse.Namespace) -> int:
             completed_keys.add(key)
 
         except Exception as exc:
-            LOGGER.exception("Trial failed: %s", name)
+            logger.exception("Trial failed: %s", name)
             record.update(
                 status="FAILED",
                 error=f"{type(exc).__name__}: {exc}",
@@ -441,19 +389,19 @@ def run(args: argparse.Namespace) -> int:
     save_report(out_dir, trials, space, seeds, started, True, len(plan))
 
     ranked = aggregate(trials)
-    LOGGER.info(
+    logger.info(
         "Search complete: %d successful, %d failed",
         sum(t.get("status") == "SUCCESS" for t in trials),
         sum(t.get("status") == "FAILED" for t in trials),
     )
     if ranked:
-        LOGGER.info(
+        logger.info(
             "Best mean validation score: %.5f | config=%s",
             ranked[0]["mean_score"],
             {k: ranked[0][k] for k in PARAM_KEYS},
         )
 
-    LOGGER.info("Compact reports saved to: %s", out_dir)
+    logger.info("Compact reports saved to: %s", out_dir)
     return 0 if ranked else 1
 
 
@@ -493,7 +441,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    configure_logging()
+    setup_logging()
     return run(parse_args())
 
 

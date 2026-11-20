@@ -1,5 +1,4 @@
-"""
-Command-line overrides for YAML experiment configs.
+"""Command-line overrides for YAML experiment configs.
 
     --set training.learning_rate=0.001 --set seed=7
     --name my_run
@@ -50,8 +49,7 @@ def apply_overrides(config: dict, overrides: list[str]) -> dict:
 
 
 def apply_name(config: dict, name: str) -> dict:
-    """
-    Rename the experiment; every output path is re-derived from it.
+    """Rename the experiment; every output path is re-derived from it.
 
     Paths follow ``results/<dataset>/<name>`` and
     ``checkpoints/<dataset>/<name>`` (see ``src.utils.paths``).

@@ -1,13 +1,14 @@
-"""
-Model architectures for the JEPA Recommender project.
-"""
+"""Model architectures: BERT4Rec and JEPA."""
 
-from .bert4rec import BERT4Rec
-from .jepa import JEPA
-from .transformer import TransformerEncoder
+from src.models.bert4rec import BERT4Rec
+from src.models.factory import build_bert4rec, build_jepa
+from src.models.jepa import JEPA
+from src.models.transformer import TransformerEncoder
 
 __all__ = [
     "BERT4Rec",
     "JEPA",
     "TransformerEncoder",
+    "build_bert4rec",
+    "build_jepa",
 ]

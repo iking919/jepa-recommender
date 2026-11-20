@@ -1,5 +1,4 @@
-"""
-Learning-rate schedule and model-selection helpers.
+"""Learning-rate schedule and model-selection helpers.
 
 Pure Python (no PyTorch) so they can be unit-tested anywhere.
 """
@@ -16,16 +15,22 @@ def lr_factor(
     min_ratio: float = 0.0,
     kind: str = "constant",
 ) -> float:
-    """
-    Multiplier applied to the base learning rate at optimizer step ``step``.
+    """Return the multiplier applied to the base learning rate.
 
-    ``constant`` holds the base rate (after optional linear warmup).
-    ``cosine`` decays from the base rate to ``min_ratio * base`` over
-    ``total_steps``, after the same warmup.
+    Args:
+        step: Current optimizer step (zero-based).
+        total_steps: Total number of optimizer steps in the run.
+        warmup_steps: Length of the linear warmup, in steps.
+        min_ratio: Cosine floor as a fraction of the base learning rate.
+        kind: ``"constant"`` holds the base rate after warmup;
+            ``"cosine"`` decays it to ``min_ratio * base`` over
+            ``total_steps``.
     """
 
     if kind not in ("constant", "cosine"):
-        raise ValueError(f"lr_schedule must be 'constant' or 'cosine', got {kind!r}.")
+        raise ValueError(
+            f"lr_schedule must be 'constant' or 'cosine', got {kind!r}."
+        )
 
     if not 0.0 <= min_ratio <= 1.0:
         raise ValueError(f"min_lr_ratio must be in [0, 1], got {min_ratio}.")
@@ -39,11 +44,14 @@ def lr_factor(
     progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
     progress = min(1.0, max(0.0, progress))
 
-    return min_ratio + (1.0 - min_ratio) * 0.5 * (1.0 + math.cos(math.pi * progress))
+    return (
+        min_ratio
+        + (1.0 - min_ratio) * 0.5 * (1.0 + math.cos(math.pi * progress))
+    )
 
 
 def trailing_mean(values: list[float], window: int) -> float:
-    """Mean of the last ``window`` values (or all of them if fewer)."""
+    """Return the mean of the last ``window`` values (or all, if fewer)."""
 
     if not values:
         raise ValueError("values must not be empty.")

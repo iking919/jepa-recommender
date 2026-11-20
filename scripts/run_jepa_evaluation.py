@@ -1,5 +1,10 @@
-"""
-Evaluate a trained JEPA checkpoint on the held-out test set.
+"""Evaluate a trained JEPA checkpoint on the held-out test set.
+
+Usage (from the repository root):
+    python -m scripts.run_jepa_evaluation --config configs/ml-1m/jepa_causal_tuned.yaml
+
+Reads the checkpoint saved by training (``--checkpoint`` overrides it) and
+writes ``test_results.json`` to the experiment's results folder.
 """
 
 from __future__ import annotations
@@ -9,15 +14,16 @@ import json
 from pathlib import Path
 
 import pandas as pd
-import torch
 from torch.utils.data import DataLoader
 
 from src.data.datasets import JEPADataset
+from src.data.tokens import MASK_TOKEN_ID, PAD_TOKEN_ID
 from src.evaluation.evaluate import evaluate_jepa
-from src.models import JEPA
+from src.models.factory import build_jepa
+from src.training.common import METRIC_NAMES, resolve_device
 from src.utils.checkpointing import load_checkpoint
 from src.utils.config import add_config_args, load_config_from_args
-from src.utils.logging import setup_logging
+from src.utils.logging_utils import setup_logging
 
 
 def main() -> None:
@@ -42,15 +48,7 @@ def main() -> None:
     training_config = config["training"]
     output_config = config["output"]
 
-    configured_device = config.get("device")
-    if configured_device == "cuda" and not torch.cuda.is_available():
-        raise RuntimeError("CUDA was requested but is not available.")
-
-    device = torch.device(
-        configured_device
-        if configured_device
-        else ("cuda" if torch.cuda.is_available() else "cpu")
-    )
+    device = resolve_device(config)
 
     test_df = pd.read_parquet(data_config["test_path"])
 
@@ -58,7 +56,7 @@ def main() -> None:
         contexts=test_df["context_sequence"].tolist(),
         targets=test_df["target_item"].tolist(),
         max_seq_len=model_config["max_seq_len"],
-        pad_token=model_config.get("pad_token_id", 0),
+        pad_token=model_config.get("pad_token_id", PAD_TOKEN_ID),
     )
 
     test_loader = DataLoader(
@@ -70,15 +68,8 @@ def main() -> None:
         drop_last=False,
     )
 
-    model = JEPA(
-        vocab_size=model_config["vocab_size"],
-        max_seq_len=model_config["max_seq_len"],
-        hidden_dim=model_config["hidden_dim"],
-        num_layers=model_config["num_layers"],
-        num_heads=model_config["num_heads"],
-        feed_forward_dim=model_config["feed_forward_dim"],
-        dropout=model_config["dropout"],
-        pad_token_id=model_config.get("pad_token_id", 0),
+    model = build_jepa(
+        model_config,
         causal=model_config.get("causal", False),
     ).to(device)
 
@@ -95,14 +86,14 @@ def main() -> None:
         loader=test_loader,
         num_items=model_config["vocab_size"],
         device=device,
-        pad_token_id=model_config.get("pad_token_id", 0),
-        mask_token_id=model_config.get("mask_token_id", 1),
+        pad_token_id=model_config.get("pad_token_id", PAD_TOKEN_ID),
+        mask_token_id=model_config.get("mask_token_id", MASK_TOKEN_ID),
         exclude_seen=True,
     )
 
     print("\nJEPA Test Results")
     print("=" * 40)
-    for name in ("HR@5", "HR@10", "NDCG@5", "NDCG@10"):
+    for name in METRIC_NAMES:
         print(f"{name:<8} {metrics[name]:.4f}")
 
     results_dir = Path(output_config["results_dir"])

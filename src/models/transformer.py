@@ -1,6 +1,4 @@
-"""
-Shared Transformer encoder used by sequential recommendation models.
-"""
+"""Shared Transformer encoder used by the sequential recommendation models."""
 
 from __future__ import annotations
 

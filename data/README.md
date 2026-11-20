@@ -128,14 +128,32 @@ data/raw/ml-1m/
 └── users.dat
 ```
 
-If the repository includes the following scripts, use them from the project root:
+Alternatively, use the scripts, run from the project root:
 
 ```bash
-python scripts/download_ml1m.py
-python scripts/preprocess_ml1m.py
+python -m scripts.download_ml1m
+python -m scripts.preprocess_ml1m
 ```
 
-Check the actual files in `scripts/` for the supported preparation commands and options.
+### Amazon Beauty
+
+The Amazon Beauty data come from the Stanford SNAP Amazon product reviews
+collection (Beauty 5-core subset). The preprocessing script expects:
+
+```text
+data/raw/amazon_beauty/
+└── reviews_Beauty_5.json        # one JSON review record per line
+```
+
+```bash
+python -m scripts.download_amazon_beauty
+python -m scripts.preprocess_amazon_beauty
+```
+
+Both datasets use the same preprocessing steps (`src/data/preprocessing.py`)
+and produce the same output layout. Amazon Beauty files use
+`item_id_mapping.csv` for the item mapping instead of
+`movie_id_mapping.csv`. See `scripts/README.md` for all options.
 
 ## Reproducibility
 

@@ -1,11 +1,6 @@
-"""
-Ranking metrics for sequential recommendation.
+"""Ranking metrics for sequential recommendation.
 
-The project uses one canonical metric naming convention for both models:
-    HR@5
-    HR@10
-    NDCG@5
-    NDCG@10
+Both models report the same four metrics: HR@5, HR@10, NDCG@5, NDCG@10.
 """
 
 from __future__ import annotations

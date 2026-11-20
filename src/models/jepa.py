@@ -1,5 +1,4 @@
-"""
-JEPA model components for sequential recommendation.
+"""JEPA model components for sequential recommendation.
 
 The context encoder and predictor are trained by backpropagation. The
 target encoder is gradient-free and its item embeddings are updated from

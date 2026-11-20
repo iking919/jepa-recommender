@@ -1,3 +1,1 @@
-"""
-JEPA Recommender source package.
-"""
+"""Sequential recommendation with BERT4Rec and causal JEPA."""

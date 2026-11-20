@@ -1,8 +1,6 @@
-"""
-Training utilities and training pipelines for the JEPA Recommender project.
-"""
+"""Training pipelines for BERT4Rec, JEPA and causal JEPA."""
 
-from .ema import EMA
+from src.training.ema import EMA
 
 __all__ = [
     "EMA",

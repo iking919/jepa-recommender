@@ -1,6 +1,4 @@
-"""
-Exponential moving average utilities for the JEPA target encoder.
-"""
+"""Exponential moving average update for the JEPA target encoder."""
 
 from __future__ import annotations
 
@@ -9,8 +7,7 @@ import torch.nn as nn
 
 
 class EMA:
-    """
-    Update a target model's item embedding from a source model.
+    """Update a target model's item embedding from a source model.
 
     The source and target modules need only expose compatible
     ``item_embedding.weight`` tensors.

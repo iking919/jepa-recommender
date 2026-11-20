@@ -1,16 +1,13 @@
+"""Evaluation routines for BERT4Rec and JEPA.
 
-"""
-Evaluation routines for sequential recommendation models.
-
-Both BERT4Rec and JEPA use the same candidate-filtering protocol and
-canonical ranking metrics:
-    HR@5, HR@10, NDCG@5, NDCG@10
+Both models use the same candidate-filtering protocol (see
+``src.evaluation.filtering``) and the same ranking metrics:
+HR@5, HR@10, NDCG@5, NDCG@10.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -18,96 +15,25 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
+from src.data.tokens import MASK_TOKEN_ID, PAD_TOKEN_ID
+from src.evaluation.filtering import filter_ranked_recommendations
 from src.evaluation.metrics import compute_ranking_metrics
-from src.evaluation.recommendation import build_candidate_embeddings, recommend_batch
+from src.evaluation.recommendation import (
+    build_candidate_embeddings,
+    recommend_batch,
+)
 from src.models.jepa import JEPA
 
+__all__ = [
+    "evaluate_bert4rec",
+    "evaluate_jepa",
+    "filter_ranked_recommendations",
+]
 
-def filter_ranked_recommendations(
-    ranked_candidates: torch.Tensor,
-    histories: Sequence[Sequence[int]] | torch.Tensor,
-    *,
-    k: int,
-    pad_token_id: int = 0,
-    mask_token_id: int | None = 1,
-    history_lengths: Sequence[int] | torch.Tensor | None = None,
-) -> torch.Tensor:
-    """
-    Remove previously seen items and special tokens from ranked candidates.
 
-    ranked_candidates must contain the complete candidate ranking, sorted
-    from highest to lowest score, rather than only the original top-k.
-
-    Returns [batch_size, k]. Missing recommendations are represented by -1.
-    """
-    if ranked_candidates.ndim != 2:
-        raise ValueError("ranked_candidates must be a 2D tensor.")
-    if k <= 0:
-        raise ValueError("k must be positive.")
-
-    batch_size = ranked_candidates.shape[0]
-
-    if isinstance(histories, torch.Tensor):
-        if histories.ndim != 2 or histories.shape[0] != batch_size:
-            raise ValueError("Tensor histories must have shape [batch, seq_len].")
-        history_rows = histories.detach().cpu().tolist()
-    else:
-        history_rows = list(histories)
-
-    if len(history_rows) != batch_size:
-        raise ValueError("Number of histories must match ranking batch size.")
-
-    if history_lengths is not None:
-        if isinstance(history_lengths, torch.Tensor):
-            lengths = history_lengths.detach().cpu().tolist()
-        else:
-            lengths = list(history_lengths)
-
-        if len(lengths) != batch_size:
-            raise ValueError("history_lengths must match ranking batch size.")
-    else:
-        lengths = None
-
-    filtered_rows: list[list[int]] = []
-
-    for row_idx, history in enumerate(history_rows):
-        if lengths is not None:
-            valid_length = max(0, min(int(lengths[row_idx]), len(history)))
-            history = history[:valid_length]
-
-        seen = {
-            int(item)
-            for item in history
-            if int(item) != pad_token_id
-            and (mask_token_id is None or int(item) != mask_token_id)
-        }
-
-        selected: list[int] = []
-
-        for candidate in ranked_candidates[row_idx].detach().cpu().tolist():
-            candidate = int(candidate)
-
-            if candidate == pad_token_id:
-                continue
-            if mask_token_id is not None and candidate == mask_token_id:
-                continue
-            if candidate in seen:
-                continue
-
-            selected.append(candidate)
-
-            if len(selected) == k:
-                break
-
-        selected.extend([-1] * (k - len(selected)))
-        filtered_rows.append(selected)
-
-    return torch.tensor(
-        filtered_rows,
-        dtype=torch.long,
-        device=ranked_candidates.device,
-    )
-
+# ---------------------------------------------------------------------
+# JEPA
+# ---------------------------------------------------------------------
 
 @torch.no_grad()
 def evaluate_jepa(
@@ -116,8 +42,8 @@ def evaluate_jepa(
     num_items: int,
     device: torch.device,
     k_values: tuple[int, ...] = (5, 10),
-    pad_token_id: int = 0,
-    mask_token_id: int | None = 1,
+    pad_token_id: int = PAD_TOKEN_ID,
+    mask_token_id: int | None = MASK_TOKEN_ID,
     exclude_seen: bool = True,
 ) -> dict[str, float]:
     """Evaluate JEPA with the shared seen-item filtering protocol."""
@@ -197,26 +123,32 @@ def evaluate_jepa(
             model.train()
 
 
-def evaluate_bert4rec(
-    model: nn.Module,
+# ---------------------------------------------------------------------
+# BERT4Rec
+# ---------------------------------------------------------------------
+
+class _PreparedUser(NamedTuple):
+    """One evaluation example, ready to be batched."""
+
+    user_id: Any
+    history_len: int
+    target: int
+    history: list[int]
+    padded_input: list[int]
+    mask_position: int
+
+
+def _validate_bert4rec_arguments(
     df: pd.DataFrame,
-    device: torch.device,
+    input_column: str,
+    target_column: str,
     max_seq_len: int,
     vocab_size: int,
-    pad_token_id: int = 0,
-    mask_token_id: int = 1,
-    target_column: str = "validation_target",
-    input_column: str = "train_sequence",
-    input_requires_mask: bool = True,
-    limit_users: int | None = None,
-    exclude_seen: bool = True,
-    batch_size: int = 256,
-) -> dict[str, Any]:
-    """
-    Evaluate BERT4Rec with the shared seen-item filtering protocol.
-
-    Returns HR@5, HR@10, NDCG@5, NDCG@10 and a small set of debug examples.
-    """
+    pad_token_id: int,
+    mask_token_id: int,
+    batch_size: int,
+    limit_users: int | None,
+) -> None:
     required_columns = {"user_id", input_column, target_column}
     missing_columns = required_columns.difference(df.columns)
 
@@ -239,12 +171,20 @@ def evaluate_bert4rec(
     if limit_users is not None and limit_users <= 0:
         raise ValueError("limit_users must be positive.")
 
-    eval_users = df.iloc[:limit_users] if limit_users is not None else df
 
-    # Each entry:
-    # user_id, history length, target, original history, padded input,
-    # prediction mask position.
-    prepared: list[tuple[Any, int, int, list[int], list[int], int]] = []
+def _prepare_bert4rec_users(
+    eval_users: pd.DataFrame,
+    input_column: str,
+    target_column: str,
+    max_seq_len: int,
+    vocab_size: int,
+    pad_token_id: int,
+    mask_token_id: int,
+    input_requires_mask: bool,
+) -> list[_PreparedUser]:
+    """Turn each user's row into a left-padded input with a MASK position."""
+
+    prepared: list[_PreparedUser] = []
 
     for _, row in eval_users.iterrows():
         sequence = row[input_column]
@@ -283,15 +223,99 @@ def evaluate_bert4rec(
         mask_position += pad_len
 
         prepared.append(
-            (
-                row["user_id"],
-                len(sequence),
-                target,
-                sequence,
-                padded,
-                mask_position,
+            _PreparedUser(
+                user_id=row["user_id"],
+                history_len=len(sequence),
+                target=target,
+                history=sequence,
+                padded_input=padded,
+                mask_position=mask_position,
             )
         )
+
+    return prepared
+
+
+def _user_metrics(
+    recommendations: torch.Tensor,
+    target: torch.Tensor,
+) -> tuple[dict[str, float], int]:
+    """Return one user's metrics and the target's rank (-1 if absent)."""
+
+    hits5 = recommendations[:5].eq(target)
+    hits10 = recommendations[:10].eq(target)
+
+    hit_positions = torch.nonzero(
+        recommendations.eq(target),
+        as_tuple=False,
+    )
+    rank = (
+        int(hit_positions[0, 0].item()) + 1
+        if len(hit_positions)
+        else -1
+    )
+
+    metrics = {
+        "HR@5": float(bool(hits5.any())),
+        "HR@10": float(bool(hits10.any())),
+        "NDCG@5": (
+            1.0 / np.log2(rank + 1)
+            if 1 <= rank <= 5
+            else 0.0
+        ),
+        "NDCG@10": (
+            1.0 / np.log2(rank + 1)
+            if 1 <= rank <= 10
+            else 0.0
+        ),
+    }
+
+    return metrics, rank
+
+
+def evaluate_bert4rec(
+    model: nn.Module,
+    df: pd.DataFrame,
+    device: torch.device,
+    max_seq_len: int,
+    vocab_size: int,
+    pad_token_id: int = PAD_TOKEN_ID,
+    mask_token_id: int = MASK_TOKEN_ID,
+    target_column: str = "validation_target",
+    input_column: str = "train_sequence",
+    input_requires_mask: bool = True,
+    limit_users: int | None = None,
+    exclude_seen: bool = True,
+    batch_size: int = 256,
+) -> dict[str, Any]:
+    """Evaluate BERT4Rec with the shared seen-item filtering protocol.
+
+    Returns HR@5, HR@10, NDCG@5, NDCG@10 and a small set of debug examples.
+    """
+    _validate_bert4rec_arguments(
+        df,
+        input_column,
+        target_column,
+        max_seq_len,
+        vocab_size,
+        pad_token_id,
+        mask_token_id,
+        batch_size,
+        limit_users,
+    )
+
+    eval_users = df.iloc[:limit_users] if limit_users is not None else df
+
+    prepared = _prepare_bert4rec_users(
+        eval_users,
+        input_column,
+        target_column,
+        max_seq_len,
+        vocab_size,
+        pad_token_id,
+        mask_token_id,
+        input_requires_mask,
+    )
 
     if not prepared:
         raise ValueError("No users were available for BERT4Rec evaluation.")
@@ -308,12 +332,12 @@ def evaluate_bert4rec(
                 batch_rows = prepared[offset:offset + batch_size]
 
                 input_ids = torch.tensor(
-                    [row[4] for row in batch_rows],
+                    [row.padded_input for row in batch_rows],
                     dtype=torch.long,
                     device=device,
                 )
                 mask_positions = torch.tensor(
-                    [row[5] for row in batch_rows],
+                    [row.mask_position for row in batch_rows],
                     dtype=torch.long,
                     device=device,
                 )
@@ -334,7 +358,7 @@ def evaluate_bert4rec(
                 )
 
                 histories = (
-                    [row[3] for row in batch_rows]
+                    [row.history for row in batch_rows]
                     if exclude_seen
                     else [[] for _ in batch_rows]
                 )
@@ -348,49 +372,23 @@ def evaluate_bert4rec(
                 ).cpu()
 
                 targets = torch.tensor(
-                    [row[2] for row in batch_rows],
+                    [row.target for row in batch_rows],
                     dtype=torch.long,
                 )
 
                 for i, row in enumerate(batch_rows):
                     recommendations = top_k[i]
-                    target = targets[i]
-
-                    hits5 = recommendations[:5].eq(target)
-                    hits10 = recommendations[:10].eq(target)
-
-                    hit_positions = torch.nonzero(
-                        recommendations.eq(target),
-                        as_tuple=False,
+                    user_metrics, rank = _user_metrics(
+                        recommendations, targets[i]
                     )
-                    rank = (
-                        int(hit_positions[0, 0].item()) + 1
-                        if len(hit_positions)
-                        else -1
-                    )
-
-                    user_metrics = {
-                        "HR@5": float(bool(hits5.any())),
-                        "HR@10": float(bool(hits10.any())),
-                        "NDCG@5": (
-                            1.0 / np.log2(rank + 1)
-                            if 1 <= rank <= 5
-                            else 0.0
-                        ),
-                        "NDCG@10": (
-                            1.0 / np.log2(rank + 1)
-                            if 1 <= rank <= 10
-                            else 0.0
-                        ),
-                    }
                     metric_rows.append(user_metrics)
 
                     if len(debug_outputs) < 5:
                         debug_outputs.append(
                             {
-                                "user_id": row[0],
-                                "history_len": row[1],
-                                "target": row[2],
+                                "user_id": row.user_id,
+                                "history_len": row.history_len,
+                                "target": row.target,
                                 "top_10": recommendations.tolist(),
                                 "rank": rank,
                                 "hit_5": bool(user_metrics["HR@5"]),

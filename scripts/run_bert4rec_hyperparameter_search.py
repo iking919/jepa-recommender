@@ -1,6 +1,8 @@
+"""Compact BERT4Rec hyperparameter grid search.
 
-"""
-Compact BERT4Rec hyperparameter grid search.
+Usage (from the repository root):
+    python -m scripts.run_bert4rec_hyperparameter_search \
+        --config configs/ml-1m/bert4rec_tuned.yaml
 
 The search writes only aggregate reports to:
     results/<dataset>/bert4rec_grid_search/
@@ -31,12 +33,10 @@ from typing import Any
 
 from src.training.train_bert4rec import train_bert4rec
 from src.utils.config import load_config
-from src.utils.logging import setup_logging
+from src.utils.logging_utils import setup_logging
 from src.utils.paths import search_dir
 
-
-logger = logging.getLogger(__name__)
-
+logger = logging.getLogger("bert4rec_hyperparameter_search")
 
 SEARCH_SPACE = {
     "learning_rate": [1e-4, 2e-4],   # new values only; 3e-4 and up are already done

@@ -1,5 +1,3 @@
-"""
-General-purpose utilities for the JEPA Recommender project.
-"""
+"""Shared utilities: configuration, paths, logging, checkpoints, seeding."""
 
 __all__ = []

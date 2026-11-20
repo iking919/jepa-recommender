@@ -1,13 +1,11 @@
-"""
-BERT4Rec sequential recommendation model.
-"""
+"""BERT4Rec sequential recommendation model."""
 
 from __future__ import annotations
 
 import torch
 import torch.nn as nn
 
-from .transformer import TransformerEncoder
+from src.models.transformer import TransformerEncoder
 
 
 class BERT4Rec(nn.Module):
@@ -73,17 +71,17 @@ class BERT4Rec(nn.Module):
         input_ids: torch.Tensor,
         target_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """
-        Args:
-            input_ids: Tensor of shape ``(batch_size, seq_len)``.
+        """Compute item logits for every position of each sequence.
 
         Args:
-            target_mask: Optional boolean (batch_size, seq_len) mask. If
+            input_ids: Tensor of shape ``(batch_size, seq_len)``.
+            target_mask: Optional boolean ``(batch_size, seq_len)`` mask. If
                 supplied, logits are returned only for selected positions.
 
         Returns:
-            Full logits, or (num_selected_positions, vocab_size) logits when
-            target_mask is supplied.
+            Logits of shape ``(batch_size, seq_len, vocab_size)``, or
+            ``(num_selected_positions, vocab_size)`` when ``target_mask`` is
+            supplied.
         """
 
         batch_size, seq_len = input_ids.shape

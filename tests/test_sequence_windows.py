@@ -1,27 +1,32 @@
-"""Tests for window construction. Run: python -m tests.test_sequence_windows"""
+"""Tests for window construction used by one-pass (causal) JEPA training."""
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from src.data.sequence_windows import build_windows, reconstruct_train_sequences
 
-W = 200
+MAX_SEQ_LEN = 200
 
 
-def make_pairs(sequences, max_seq_len=W):
-    """Mirror scripts/preprocess_ml1m.py::generate_jepa_datasets."""
+def make_pairs(sequences, max_seq_len=MAX_SEQ_LEN):
+    """Build a pair file the way ``generate_jepa_datasets`` does."""
+
     rows = []
-    for user_id, seq in enumerate(sequences):
-        if len(seq) < 2:
+
+    for user_id, sequence in enumerate(sequences):
+        if len(sequence) < 2:
             continue
-        for i in range(1, len(seq)):
+
+        for i in range(1, len(sequence)):
             rows.append(
                 {
                     "user_id": user_id,
-                    "context_sequence": np.array(seq[:i][-max_seq_len:]),
-                    "target_item": seq[i],
+                    "context_sequence": np.array(sequence[:i][-max_seq_len:]),
+                    "target_item": sequence[i],
                 }
             )
+
     return pd.DataFrame(rows)
 
 
@@ -31,82 +36,85 @@ def random_sequences(rng, lengths):
 
 def test_reconstruction_roundtrip():
     rng = np.random.default_rng(0)
-    seqs = random_sequences(rng, [2, 5, 199, 200, 201, 202, 450, 1000])
-    out = reconstruct_train_sequences(make_pairs(seqs))
-    assert [list(map(int, s)) for s in seqs] == out
+    sequences = random_sequences(rng, [2, 5, 199, 200, 201, 202, 450, 1000])
+
+    reconstructed = reconstruct_train_sequences(make_pairs(sequences))
+
+    assert [list(map(int, s)) for s in sequences] == reconstructed
 
 
-def test_every_target_supervised_exactly_once():
+def test_every_target_is_supervised_exactly_once():
     rng = np.random.default_rng(1)
     lengths = [2, 3, 50, 199, 200, 201, 202, 250, 299, 300, 301, 450, 1000, 2314]
-    seqs = random_sequences(rng, lengths)
+    sequences = random_sequences(rng, lengths)
 
     for stride in (1, 50, 100, 150, 200):
-        win = build_windows(seqs, max_seq_len=W, stride=stride)
-        starts_seen = {}
+        windows = build_windows(sequences, max_seq_len=MAX_SEQ_LEN, stride=stride)
 
-        for row in range(len(win["inputs"])):
-            user = win["user_index"][row]
-            seq = np.asarray(seqs[user])
-            # window start = the position of its first input within the sequence
-            k = starts_seen.get(user, 0)
+        windows_seen = {}
+        covered = {user: [] for user in range(len(sequences))}
+
+        for row in range(len(windows["inputs"])):
+            user = windows["user_index"][row]
+            sequence = np.asarray(sequences[user])
+
+            # Windows of one user appear in order; window k starts at k * stride.
+            k = windows_seen.get(user, 0)
             start = k * stride
-            starts_seen[user] = k + 1
+            windows_seen[user] = k + 1
 
-            n_in = min(W, len(seq) - start)
-            assert (win["inputs"][row, :n_in] == seq[start: start + n_in]).all()
-            assert (win["inputs"][row, n_in:] == 0).all()
+            # Inputs are the sequence slice, right-padded with zeros.
+            n_inputs = min(MAX_SEQ_LEN, len(sequence) - start)
+            assert (
+                windows["inputs"][row, :n_inputs]
+                == sequence[start:start + n_inputs]
+            ).all()
+            assert (windows["inputs"][row, n_inputs:] == 0).all()
 
-            for j in np.flatnonzero(win["mask"][row]):
-                # target is the item right after the input at position j
-                assert win["targets"][row, j] == seq[start + j + 1]
+            # Each target is the item right after its input position.
+            for j in np.flatnonzero(windows["mask"][row]):
+                assert windows["targets"][row, j] == sequence[start + j + 1]
+                covered[user].append(start + j + 1)
 
-        for user, seq in enumerate(seqs):
-            covered = []
-            for row in np.flatnonzero(win["user_index"] == user):
-                k = len(covered_rows := [r for r in np.flatnonzero(win["user_index"] == user) if r < row])
-                start = k * stride
-                for j in np.flatnonzero(win["mask"][row]):
-                    covered.append(start + j + 1)
-            assert sorted(covered) == list(range(1, len(seq))), (stride, len(seq))
+        for user, sequence in enumerate(sequences):
+            assert sorted(covered[user]) == list(range(1, len(sequence))), (
+                stride,
+                len(sequence),
+            )
 
 
-def test_total_targets_match_pair_file():
+def test_total_targets_match_the_pair_file():
     rng = np.random.default_rng(2)
-    seqs = random_sequences(rng, rng.integers(2, 700, size=300))
-    pairs = make_pairs(seqs)
-    win = build_windows(reconstruct_train_sequences(pairs), stride=100)
-    assert int(win["mask"].sum()) == len(pairs)
+    sequences = random_sequences(rng, rng.integers(2, 700, size=300))
+    pairs = make_pairs(sequences)
+
+    windows = build_windows(reconstruct_train_sequences(pairs), stride=100)
+
+    assert int(windows["mask"].sum()) == len(pairs)
 
 
-def test_minimum_context_for_later_windows():
+def test_later_windows_only_supervise_positions_with_enough_context():
     rng = np.random.default_rng(3)
-    seqs = random_sequences(rng, [1000])
-    win = build_windows(seqs, stride=100)
-    # Later windows only supervise positions with >= 101 items of context.
-    for row in range(1, len(win["inputs"])):
-        assert np.flatnonzero(win["mask"][row]).min() >= 100
+    sequences = random_sequences(rng, [1000])
+
+    windows = build_windows(sequences, stride=100)
+
+    for row in range(1, len(windows["inputs"])):
+        assert np.flatnonzero(windows["mask"][row]).min() >= 100
 
 
 def test_window_count_is_small():
     rng = np.random.default_rng(4)
-    seqs = random_sequences(rng, [150] * 100 + [1000] * 10)
-    win = build_windows(seqs, stride=100)
-    assert len(win["inputs"]) == 100 * 1 + 10 * 9
+    sequences = random_sequences(rng, [150] * 100 + [1000] * 10)
+
+    windows = build_windows(sequences, stride=100)
+
+    assert len(windows["inputs"]) == 100 * 1 + 10 * 9
 
 
-def test_shuffled_pairs_are_rejected():
+def test_shuffled_pair_file_is_rejected():
     rng = np.random.default_rng(5)
     pairs = make_pairs(random_sequences(rng, [30, 40]))
-    try:
+
+    with pytest.raises(ValueError):
         reconstruct_train_sequences(pairs.sample(frac=1.0, random_state=0))
-    except ValueError:
-        return
-    raise AssertionError("shuffled pair file should have been rejected")
-
-
-if __name__ == "__main__":
-    for name, fn in list(globals().items()):
-        if name.startswith("test_"):
-            fn()
-            print("ok ", name)

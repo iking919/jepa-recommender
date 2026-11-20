@@ -1,10 +1,13 @@
-"""
-One-pass (causal) JEPA training.
+"""One-pass (causal) JEPA training.
 
-Checkpoint saving is enabled by default. Disable it with:
-    training.save_checkpoint: false
+A causal context encoder predicts the next item at every position of a
+window in a single forward pass, so each user's history is encoded once per
+window instead of once per target. Model selection uses a trailing mean of
+the validation NDCG@10 (``training.selection_window``).
 
-Training histories, resolved configurations, and run summaries are always saved.
+Checkpoint saving is enabled by default. Disable it with
+``training.save_checkpoint: false``. Training histories, resolved
+configurations and run summaries are always saved.
 """
 
 from __future__ import annotations
@@ -13,7 +16,6 @@ import argparse
 import logging
 import time
 from datetime import datetime
-from pathlib import Path
 
 import pandas as pd
 import torch
@@ -22,17 +24,25 @@ import torch.nn.functional as F
 from src.data.datasets import JEPADataset
 from src.data.gpu_loader import GPUBatchLoader, GPUWindowLoader
 from src.data.sequence_windows import build_windows, reconstruct_train_sequences
+from src.data.tokens import PAD_TOKEN_ID
+from src.evaluation.evaluate import evaluate_jepa
+from src.models.factory import build_jepa
 from src.models.jepa import JEPA
 from src.training.common import (
+    AmpSettings,
+    RunPaths,
+    build_hardware_summary,
+    build_timing_summary,
     count_parameters,
-    get_gpu_name,
     get_peak_gpu_memory_gb,
     log_hardware,
+    prepare_run_paths,
     reset_peak_gpu_memory,
+    resolve_amp_settings,
     resolve_device,
     save_epoch_history,
     save_run_summary,
-    set_seed,
+    select_best_metrics,
     synchronize_cuda,
 )
 from src.training.ema import EMA
@@ -42,8 +52,9 @@ from src.utils.config import (
     load_config_from_args,
     save_resolved_config,
 )
-from src.utils.logging import setup_logging
+from src.utils.logging_utils import setup_logging
 from src.utils.paths import resolve_output
+from src.utils.reproducibility import set_seed
 from src.utils.schedules import lr_factor, trailing_mean
 
 logger = logging.getLogger(__name__)
@@ -118,34 +129,23 @@ def validate(
     )
 
 
-# Imported here to keep this script's validation wrapper explicit.
-from src.evaluation.evaluate import evaluate_jepa
+def _build_data(
+    config: dict,
+    device: torch.device,
+    stride: int,
+) -> tuple[list, GPUWindowLoader, JEPADataset, GPUBatchLoader]:
+    """Build the training windows and the validation loader.
 
-
-def train(config: dict) -> dict:
-    """Run a complete causal one-pass JEPA training experiment."""
-    seed = config.get("seed", 42)
-    set_seed(seed)
-
-    device = resolve_device(config)
-    log_hardware(device)
+    Returns:
+        ``(sequences, train_loader, validation_dataset, validation_loader)``.
+    """
 
     data_config = config["data"]
     model_config = config["model"]
     training_config = config["training"]
-    resolve_output(config)
-    output_config = config["output"]
-
-    if not model_config.get("causal", False):
-        raise ValueError(
-            "train_jepa_causal requires model.causal: true so that "
-            "the causal evaluation architecture is used."
-        )
 
     max_seq_len = model_config["max_seq_len"]
-    pad_token = model_config.get("pad_token_id", 0)
-    stride = training_config.get("window_stride", max_seq_len // 2)
-    save_checkpoint_enabled = training_config.get("save_checkpoint", True)
+    pad_token = model_config.get("pad_token_id", PAD_TOKEN_ID)
 
     train_df = pd.read_parquet(data_config["train_path"])
     validation_df = pd.read_parquet(data_config["validation_path"])
@@ -193,17 +193,138 @@ def train(config: dict) -> dict:
         drop_last=False,
     )
 
-    model = JEPA(
-        vocab_size=model_config["vocab_size"],
-        max_seq_len=max_seq_len,
-        hidden_dim=model_config["hidden_dim"],
-        num_layers=model_config["num_layers"],
-        num_heads=model_config["num_heads"],
-        feed_forward_dim=model_config["feed_forward_dim"],
-        dropout=model_config["dropout"],
-        pad_token_id=pad_token,
-        causal=True,
-    ).to(device)
+    return sequences, train_loader, validation_dataset, validation_loader
+
+
+def _build_summary(
+    *,
+    config: dict,
+    device: torch.device,
+    seed: int,
+    run_start: str,
+    run_end: str,
+    configured_epochs: int,
+    epoch_history: list[dict],
+    best_epoch: int,
+    best_metrics: dict,
+    best_epoch_record: dict,
+    best_score: float,
+    total_time: float,
+    total_train_time: float,
+    total_validation_time: float,
+    parameter_counts: tuple[int, int],
+    amp: AmpSettings,
+    use_compile: bool,
+    ema_decay: float,
+    patience: int,
+    stride: int,
+    lr_schedule: str,
+    warmup_epochs: float,
+    min_lr_ratio: float,
+    selection_window: int,
+    paths: RunPaths,
+    save_checkpoint_enabled: bool,
+    sequences: list,
+    train_loader: GPUWindowLoader,
+    validation_dataset: JEPADataset,
+) -> dict:
+    """Assemble the ``run_summary.json`` contents."""
+
+    data_config = config["data"]
+    model_config = config["model"]
+    training_config = config["training"]
+    total_params, trainable_params = parameter_counts
+
+    return {
+        "model": "JEPA (causal one-pass)",
+        "experiment_name": config["output"]["experiment_name"],
+        "dataset": data_config.get("dataset_name", "unknown"),
+        "run_start": run_start,
+        "run_end": run_end,
+        "device": str(device),
+        "seed": seed,
+        "configured_epochs": configured_epochs,
+        "completed_epochs": len(epoch_history),
+        "best_epoch": best_epoch,
+        "best_metrics": select_best_metrics(best_metrics),
+        "best_epoch_loss": best_epoch_record.get("loss"),
+        "best_selection_score": best_score if best_epoch else None,
+        "timing": build_timing_summary(
+            epoch_history,
+            best_epoch=best_epoch,
+            total_time=total_time,
+            total_train_time=total_train_time,
+            total_validation_time=total_validation_time,
+        ),
+        "hardware": build_hardware_summary(device, epoch_history),
+        "model_parameters": {
+            "total": total_params,
+            "trainable": trainable_params,
+        },
+        "training_configuration": {
+            "batch_size": training_config["batch_size"],
+            "learning_rate": training_config["learning_rate"],
+            "weight_decay": training_config.get("weight_decay", 0.0),
+            "mixed_precision": amp.use_amp,
+            "amp_dtype": amp.dtype_name,
+            "compile": use_compile,
+            "ema_decay": ema_decay,
+            "patience": patience,
+            "window_stride": stride,
+            "lr_schedule": lr_schedule,
+            "warmup_epochs": warmup_epochs,
+            "min_lr_ratio": min_lr_ratio,
+            "selection_window": selection_window,
+            "save_checkpoint": save_checkpoint_enabled,
+        },
+        "model_configuration": model_config,
+        "data": {
+            "sequences": len(sequences),
+            "training_windows": train_loader.num_windows,
+            "supervised_targets_per_epoch": train_loader.num_targets,
+            "training_batches_per_epoch": len(train_loader),
+            "validation_samples": len(validation_dataset),
+        },
+        "files": {
+            "checkpoint": (
+                str(paths.best_checkpoint) if paths.best_checkpoint else None
+            ),
+            "epoch_history": str(paths.history),
+            "run_summary": str(paths.summary),
+            "config": str(paths.config),
+        },
+    }
+
+
+def train(config: dict) -> dict:
+    """Run a complete causal one-pass JEPA training experiment."""
+    seed = config.get("seed", 42)
+    set_seed(seed)
+
+    device = resolve_device(config)
+    log_hardware(device)
+
+    model_config = config["model"]
+    training_config = config["training"]
+    resolve_output(config)
+    output_config = config["output"]
+
+    if not model_config.get("causal", False):
+        raise ValueError(
+            "train_jepa_causal requires model.causal: true so that "
+            "the causal evaluation architecture is used."
+        )
+
+    max_seq_len = model_config["max_seq_len"]
+    stride = training_config.get("window_stride", max_seq_len // 2)
+    save_checkpoint_enabled = training_config.get("save_checkpoint", True)
+
+    # ----- data, model, optimization -----
+    sequences, train_loader, validation_dataset, validation_loader = (
+        _build_data(config, device, stride)
+    )
+
+    model = build_jepa(model_config, causal=True).to(device)
 
     total_params, trainable_params = count_parameters(model)
     logger.info(
@@ -257,28 +378,7 @@ def train(config: dict) -> dict:
             "to run the full schedule."
         )
 
-    use_amp = (
-        training_config.get("mixed_precision", True)
-        and device.type == "cuda"
-    )
-    amp_dtype_name = training_config.get("amp_dtype", "bfloat16")
-    if amp_dtype_name not in ("float16", "bfloat16"):
-        raise ValueError(
-            f"amp_dtype must be float16 or bfloat16, got {amp_dtype_name}."
-        )
-    amp_dtype = getattr(torch, amp_dtype_name)
-    if (
-        use_amp
-        and amp_dtype is torch.bfloat16
-        and not torch.cuda.is_bf16_supported()
-    ):
-        raise RuntimeError(
-            "bfloat16 was requested but this GPU does not support it."
-        )
-    scaler = torch.amp.GradScaler(
-        "cuda",
-        enabled=use_amp and amp_dtype is torch.float16,
-    )
+    amp = resolve_amp_settings(training_config, device, "bfloat16")
 
     use_compile = training_config.get("compile", False)
     forward_fn = (
@@ -286,42 +386,30 @@ def train(config: dict) -> dict:
         if use_compile else model.forward_sequence
     )
 
+    # ----- outputs -----
     experiment_name = output_config["experiment_name"]
-    results_dir = Path(output_config["results_dir"])
-    results_dir.mkdir(parents=True, exist_ok=True)
-
-    if save_checkpoint_enabled:
-        checkpoint_dir = Path(output_config["checkpoint_dir"])
-        checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        best_checkpoint_name = (
-            output_config.get("best_checkpoint_name")
-            or f"{experiment_name}_best.pt"
-        )
-        best_checkpoint = checkpoint_dir / best_checkpoint_name
-    else:
-        checkpoint_dir = None
-        best_checkpoint_name = None
-        best_checkpoint = None
-
-    history_path = results_dir / "training_history.csv"
-    summary_path = results_dir / "run_summary.json"
-    config_path = results_dir / "config.yaml"
+    paths = prepare_run_paths(
+        output_config,
+        save_checkpoint=save_checkpoint_enabled,
+        experiment_name=experiment_name,
+    )
 
     output_config["checkpoint_dir"] = (
-        str(checkpoint_dir) if checkpoint_dir is not None else None
+        str(paths.checkpoint_dir) if paths.checkpoint_dir is not None else None
     )
-    output_config["results_dir"] = str(results_dir)
-    output_config["best_checkpoint_name"] = best_checkpoint_name
+    output_config["results_dir"] = str(paths.results_dir)
+    output_config["best_checkpoint_name"] = paths.checkpoint_name
     output_config["save_checkpoint"] = save_checkpoint_enabled
-    save_resolved_config(config, results_dir)
+    save_resolved_config(config, paths.results_dir)
 
     logger.info("Experiment: %s", experiment_name)
-    logger.info("Results directory: %s", results_dir)
+    logger.info("Results directory: %s", paths.results_dir)
     logger.info(
         "Checkpoint saving: %s",
         "ENABLED" if save_checkpoint_enabled else "DISABLED",
     )
 
+    # ----- training loop -----
     best_score = float("-inf")
     best_ndcg10 = float("-inf")
     ndcg_history: list[float] = []
@@ -347,11 +435,11 @@ def train(config: dict) -> dict:
             forward_fn=forward_fn,
             dataloader=train_loader,
             optimizer=optimizer,
-            scaler=scaler,
+            scaler=amp.scaler,
             ema=ema,
             device=device,
-            use_amp=use_amp,
-            amp_dtype=amp_dtype,
+            use_amp=amp.use_amp,
+            amp_dtype=amp.dtype,
             scheduler=scheduler,
         )
         total_train_time += train_time
@@ -389,7 +477,7 @@ def train(config: dict) -> dict:
             "peak_gpu_memory_gb": peak_gpu_memory_gb,
         }
         epoch_history.append(record)
-        save_epoch_history(epoch_history, history_path)
+        save_epoch_history(epoch_history, paths.history)
 
         logger.info(
             "Epoch %03d/%03d | loss=%.4f | HR@10=%.4f | NDCG@10=%.4f | "
@@ -413,13 +501,15 @@ def train(config: dict) -> dict:
                         "epoch": epoch,
                         "model_state_dict": model.state_dict(),
                         "optimizer_state_dict": optimizer.state_dict(),
-                        "scaler_state_dict": scaler.state_dict(),
+                        "scaler_state_dict": amp.scaler.state_dict(),
                         "metrics": metrics,
                         "config": config,
                     },
-                    best_checkpoint,
+                    paths.best_checkpoint,
                 )
-                logger.info("Saved new best checkpoint: %s", best_checkpoint)
+                logger.info(
+                    "Saved new best checkpoint: %s", paths.best_checkpoint
+                )
             else:
                 logger.info(
                     "New best selection score: %.4f (checkpoint saving disabled)",
@@ -437,95 +527,46 @@ def train(config: dict) -> dict:
 
     synchronize_cuda(device)
     total_time = time.perf_counter() - total_start
-    completed_epochs = len(epoch_history)
 
-    summary = {
-        "model": "JEPA (causal one-pass)",
-        "experiment_name": experiment_name,
-        "dataset": data_config.get("dataset_name", "unknown"),
-        "run_start": run_start,
-        "run_end": datetime.now().isoformat(),
-        "device": str(device),
-        "seed": seed,
-        "configured_epochs": configured_epochs,
-        "completed_epochs": completed_epochs,
-        "best_epoch": best_epoch,
-        "best_metrics": {
-            name: best_metrics.get(name, 0.0)
-            for name in ("HR@5", "HR@10", "NDCG@5", "NDCG@10")
-        },
-        "best_epoch_loss": best_epoch_record.get("loss"),
-        "best_selection_score": best_score if best_epoch else None,
-        "timing": {
-            "total_training_time_seconds": total_time,
-            "total_training_time_minutes": total_time / 60.0,
-            "total_train_only_seconds": total_train_time,
-            "time_to_best_epoch_seconds": sum(
-                row["epoch_time_seconds"] for row in epoch_history[:best_epoch]
-            ),
-            "average_epoch_time_seconds": (
-                sum(row["epoch_time_seconds"] for row in epoch_history)
-                / completed_epochs if completed_epochs else 0.0
-            ),
-            "average_train_time_seconds": (
-                total_train_time / completed_epochs if completed_epochs else 0.0
-            ),
-            "average_validation_time_seconds": (
-                total_validation_time / completed_epochs
-                if completed_epochs else 0.0
-            ),
-        },
-        "hardware": {
-            "device": str(device),
-            "gpu": get_gpu_name(device),
-            "peak_gpu_memory_gb": max(
-                (row["peak_gpu_memory_gb"] for row in epoch_history),
-                default=0.0,
-            ),
-        },
-        "model_parameters": {
-            "total": total_params,
-            "trainable": trainable_params,
-        },
-        "training_configuration": {
-            "batch_size": training_config["batch_size"],
-            "learning_rate": training_config["learning_rate"],
-            "weight_decay": training_config.get("weight_decay", 0.0),
-            "mixed_precision": use_amp,
-            "amp_dtype": amp_dtype_name,
-            "compile": use_compile,
-            "ema_decay": ema_decay,
-            "patience": patience,
-            "window_stride": stride,
-            "lr_schedule": lr_schedule,
-            "warmup_epochs": warmup_epochs,
-            "min_lr_ratio": min_lr_ratio,
-            "selection_window": selection_window,
-            "save_checkpoint": save_checkpoint_enabled,
-        },
-        "model_configuration": model_config,
-        "data": {
-            "sequences": len(sequences),
-            "training_windows": train_loader.num_windows,
-            "supervised_targets_per_epoch": train_loader.num_targets,
-            "training_batches_per_epoch": len(train_loader),
-            "validation_samples": len(validation_dataset),
-        },
-        "files": {
-            "checkpoint": str(best_checkpoint) if best_checkpoint else None,
-            "epoch_history": str(history_path),
-            "run_summary": str(summary_path),
-            "config": str(config_path),
-        },
-    }
+    summary = _build_summary(
+        config=config,
+        device=device,
+        seed=seed,
+        run_start=run_start,
+        run_end=datetime.now().isoformat(),
+        configured_epochs=configured_epochs,
+        epoch_history=epoch_history,
+        best_epoch=best_epoch,
+        best_metrics=best_metrics,
+        best_epoch_record=best_epoch_record,
+        best_score=best_score,
+        total_time=total_time,
+        total_train_time=total_train_time,
+        total_validation_time=total_validation_time,
+        parameter_counts=(total_params, trainable_params),
+        amp=amp,
+        use_compile=use_compile,
+        ema_decay=ema_decay,
+        patience=patience,
+        stride=stride,
+        lr_schedule=lr_schedule,
+        warmup_epochs=warmup_epochs,
+        min_lr_ratio=min_lr_ratio,
+        selection_window=selection_window,
+        paths=paths,
+        save_checkpoint_enabled=save_checkpoint_enabled,
+        sequences=sequences,
+        train_loader=train_loader,
+        validation_dataset=validation_dataset,
+    )
 
-    save_run_summary(summary, summary_path)
+    save_run_summary(summary, paths.summary)
     logger.info(
         "Training complete. Best epoch: %d | NDCG@10 at that epoch: %.4f "
         "| selection score: %.4f",
         best_epoch, best_ndcg10, best_score,
     )
-    logger.info("Results directory: %s", results_dir)
+    logger.info("Results directory: %s", paths.results_dir)
     return summary
 
 

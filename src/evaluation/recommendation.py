@@ -1,12 +1,11 @@
-"""
-Recommendation utilities for JEPA evaluation.
-"""
+"""Recommendation utilities for JEPA evaluation."""
 
 from __future__ import annotations
 
 import torch
 import torch.nn.functional as F
 
+from src.data.tokens import FIRST_ITEM_ID
 from src.models.jepa import JEPA
 
 
@@ -16,14 +15,13 @@ def build_candidate_embeddings(
     num_items: int,
     device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    Build normalized embeddings for all valid recommendation items.
+    """Build normalized embeddings for all valid recommendation items.
 
-    IDs 0 and 1 are reserved for PAD and MASK.
+    IDs below ``FIRST_ITEM_ID`` are reserved for PAD and MASK.
     """
 
     candidate_ids = torch.arange(
-        2,
+        FIRST_ITEM_ID,
         num_items,
         dtype=torch.long,
         device=device,

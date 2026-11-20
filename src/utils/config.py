@@ -1,5 +1,4 @@
-"""
-Configuration loading.
+"""Configuration loading.
 
 A run's config is built in layers, later layers winning:
 
@@ -43,6 +42,8 @@ _DATASET_META_KEYS = ("name", "description")
 
 
 def _read_yaml(path: Path) -> dict:
+    """Read a YAML file that must contain a mapping."""
+
     if not path.exists():
         raise FileNotFoundError(f"Configuration file not found: {path}")
 

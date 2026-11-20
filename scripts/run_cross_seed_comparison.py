@@ -1,6 +1,5 @@
 
-"""
-Cross-seed comparison for causal JEPA and BERT4Rec.
+"""Cross-seed comparison for causal JEPA and BERT4Rec.
 
 Outputs:
     seed_results.csv
@@ -38,82 +37,27 @@ from __future__ import annotations
 
 import argparse
 import copy
-import gc
-import itertools
 import json
 import logging
-import math
 import statistics
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-import yaml
 
+from src.training.common import release_gpu_memory
+from src.utils.config import load_config
+from src.utils.logging_utils import setup_logging
+from src.utils.paths import PROJECT_ROOT, scratch_dir, search_dir
+from src.utils.serialization import finite_number, json_safe, write_json
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-from src.utils.config import load_config  # noqa: E402
-from src.utils.paths import scratch_dir, search_dir  # noqa: E402
-
-LOGGER = logging.getLogger("cross_seed_comparison")
+logger = logging.getLogger("cross_seed_comparison")
 
 DEFAULT_SEEDS = [42, 123, 456, 789, 2026]
 
 METRICS = ["HR@5", "HR@10", "NDCG@5", "NDCG@10"]
-
-
-def configure_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(message)s",
-        handlers=[logging.StreamHandler(sys.stdout)],
-        force=True,
-    )
-
-
-def json_safe(value: Any) -> Any:
-    """Convert common Python/numpy values to JSON-safe values."""
-    if isinstance(value, dict):
-        return {str(k): json_safe(v) for k, v in value.items()}
-
-    if isinstance(value, (list, tuple)):
-        return [json_safe(v) for v in value]
-
-    if value is None or isinstance(value, (str, bool, int)):
-        return value
-
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-
-    if isinstance(value, Path):
-        return str(value)
-
-    if hasattr(value, "item"):
-        try:
-            return json_safe(value.item())
-        except (TypeError, ValueError):
-            pass
-
-    return str(value)
-
-
-def write_json(path: Path, data: dict[str, Any]) -> None:
-    """Write atomically to reduce the risk of corrupting progress."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = path.with_suffix(path.suffix + ".tmp")
-
-    with temporary_path.open("w", encoding="utf-8") as file:
-        json.dump(json_safe(data), file, indent=2, allow_nan=False)
-        file.write("\n")
-
-    temporary_path.replace(path)
 
 
 def detect_model(config: dict[str, Any], requested: str) -> str:
@@ -159,13 +103,6 @@ def detect_model(config: dict[str, Any], requested: str) -> str:
         "Could not identify the model from the YAML. "
         "Pass --model jepa or --model bert4rec explicitly."
     )
-
-
-def finite_number(value: Any) -> bool:
-    try:
-        return math.isfinite(float(value))
-    except (TypeError, ValueError, OverflowError):
-        return False
 
 
 def get_metric(metrics: dict[str, Any], name: str) -> float | None:
@@ -512,23 +449,23 @@ def run(args: argparse.Namespace) -> int:
             ]
 
             started_at = previous.get("started_at", started_at)
-            LOGGER.info("Resuming: %d successful runs loaded.", len(records))
+            logger.info("Resuming: %d successful runs loaded.", len(records))
 
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             if isinstance(exc, ValueError) and "different model" in str(exc):
                 raise
-            LOGGER.warning("Could not resume report: %s", exc)
+            logger.warning("Could not resume report: %s", exc)
             records = []
 
     completed_seeds = {
         row["seed"] for row in records
     }
 
-    LOGGER.info("Model: %s", model_type)
-    LOGGER.info("Dataset: %s", dataset)
-    LOGGER.info("Config: %s", config_path)
-    LOGGER.info("Output: %s", output_dir)
-    LOGGER.info("Seeds: %s", seeds)
+    logger.info("Model: %s", model_type)
+    logger.info("Dataset: %s", dataset)
+    logger.info("Config: %s", config_path)
+    logger.info("Output: %s", output_dir)
+    logger.info("Seeds: %s", seeds)
 
     save_reports(
         output_dir,
@@ -542,13 +479,13 @@ def run(args: argparse.Namespace) -> int:
 
     for index, seed in enumerate(seeds, start=1):
         if not args.no_resume and seed in completed_seeds:
-            LOGGER.info(
+            logger.info(
                 "[%d/%d] Skipping seed %s; already successful.",
                 index, len(seeds), seed,
             )
             continue
 
-        LOGGER.info(
+        logger.info(
             "[%d/%d] Running %s with seed=%s",
             index, len(seeds), model_type, seed,
         )
@@ -572,7 +509,7 @@ def run(args: argparse.Namespace) -> int:
 
             records.append(record)
 
-            LOGGER.info(
+            logger.info(
                 "Seed %s complete | NDCG@10=%.5f | time=%.1f min",
                 seed,
                 record["NDCG@10"],
@@ -580,7 +517,7 @@ def run(args: argparse.Namespace) -> int:
             )
 
         except Exception as exc:
-            LOGGER.exception("Seed %s failed.", seed)
+            logger.exception("Seed %s failed.", seed)
 
             records.append({
                 "seed": seed,
@@ -596,14 +533,7 @@ def run(args: argparse.Namespace) -> int:
             })
 
         finally:
-            gc.collect()
-
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-            except ImportError:
-                pass
+            release_gpu_memory()
 
             save_reports(
                 output_dir,
@@ -635,13 +565,13 @@ def run(args: argparse.Namespace) -> int:
         row.get("status") == "SUCCESS" for row in records
     )
 
-    LOGGER.info(
+    logger.info(
         "Finished: %d/%d successful runs.",
         successful_count, len(seeds),
     )
 
     if ndcg_summary:
-        LOGGER.info(
+        logger.info(
             "Validation NDCG@10: mean=%.5f | median=%.5f | "
             "std=%s | min=%.5f | max=%.5f",
             ndcg_summary["mean"],
@@ -655,7 +585,7 @@ def run(args: argparse.Namespace) -> int:
             ndcg_summary["max"],
         )
 
-    LOGGER.info("Reports saved to %s", output_dir)
+    logger.info("Reports saved to %s", output_dir)
 
     return 0 if successful_count == len(seeds) else 1
 
@@ -724,7 +654,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    configure_logging()
+    setup_logging()
     return run(parse_args())
 
 
